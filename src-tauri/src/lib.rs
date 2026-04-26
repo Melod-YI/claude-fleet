@@ -11,6 +11,7 @@ use commands::session::{
     receive_hook_event,
     send_notification,
 };
+use commands::terminal::{jump_to_terminal, resume_in_terminal};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -25,7 +26,9 @@ pub fn run() {
             start_hooks,
             stop_hooks,
             receive_hook_event,
-            send_notification
+            send_notification,
+            jump_to_terminal,
+            resume_in_terminal
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
