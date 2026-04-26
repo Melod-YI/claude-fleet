@@ -1,6 +1,7 @@
 use crate::utils::claude_data::{
     get_all_sessions, get_session_conversation, ClaudeSession, Conversation,
 };
+use crate::utils::hooks::{start_hook_server, stop_hook_server, handle_hook_event, HookEvent};
 
 /// 获取所有 session 列表
 #[tauri::command]
@@ -60,4 +61,32 @@ pub async fn start_new_session(
         }
         Err(e) => Err(format!("启动失败: {}", e)),
     }
+}
+
+/// 启动钩子服务
+#[tauri::command]
+pub fn start_hooks(app: tauri::AppHandle) -> Result<(), String> {
+    start_hook_server(app)
+}
+
+/// 停止钩子服务
+#[tauri::command]
+pub fn stop_hooks() -> Result<(), String> {
+    stop_hook_server();
+    Ok(())
+}
+
+/// 接收钩子事件
+#[tauri::command]
+pub fn receive_hook_event(event: HookEvent) -> Result<(), String> {
+    handle_hook_event(event)
+}
+
+/// 发送桌面通知
+#[tauri::command]
+pub fn send_notification(title: String, body: String) -> Result<(), String> {
+    // 这里可以集成系统通知
+    // 目前只是打印日志，前端会使用 Web Notifications API
+    println!("通知: {} - {}", title, body);
+    Ok(())
 }
