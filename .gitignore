@@ -3,6 +3,7 @@ node_modules/
 
 # Build output
 dist/
+src-tauri/target/
 
 # IDE
 .idea/
@@ -24,4 +25,8 @@ Thumbs.db
 npm-debug.log*
 
 # Tauri
-src-tauri/target/
+.superpowers/
+src-tauri/gen/
+
+# Cache
+.cache/
