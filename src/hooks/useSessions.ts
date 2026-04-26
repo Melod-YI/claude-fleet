@@ -1,7 +1,6 @@
 import { useEffect, useMemo } from 'react'
 import { useSessionStore, useFavoriteStore } from '@/stores'
 import { searchSessions, filterByTimeRange } from '@/utils'
-import type { ClaudeSession } from '@/types'
 
 export function useSessions() {
   const { sessions, filter, loading, error, loadSessions, setFilter } = useSessionStore()
