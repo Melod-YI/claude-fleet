@@ -39,3 +39,15 @@ export async function refreshSessions(): Promise<ClaudeSession[]> {
     throw error
   }
 }
+
+/**
+ * 删除 session
+ */
+export async function deleteSession(sessionId: string): Promise<void> {
+  try {
+    await invoke('delete_session_cmd', { sessionId })
+  } catch (error) {
+    console.error('删除 session 失败:', error)
+    throw error
+  }
+}

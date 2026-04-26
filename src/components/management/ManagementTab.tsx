@@ -4,6 +4,7 @@ import { SessionList } from "./SessionList"
 import { SessionDetail } from "./SessionDetail"
 import { NewSessionDialog } from "@/components/dialogs"
 import { useSessionStore, useSettingsStore } from "@/stores"
+import { deleteSession } from "@/services"
 import type { ClaudeSession } from "@/types"
 
 export function ManagementTab() {
@@ -25,9 +26,18 @@ export function ManagementTab() {
     setShowNewSessionDialog(false)
   }
 
-  const handleDelete = (sessionId: string) => {
-    // Phase 6 实现
-    console.log("Delete session:", sessionId)
+  const handleDelete = async (sessionId: string) => {
+    try {
+      await deleteSession(sessionId)
+      // 清空选中
+      if (selectedSession?.id === sessionId) {
+        setSelectedSession(null)
+      }
+      // 通知 SessionList 刷新（通过 useSessionStore）
+      await selectSession("")
+    } catch (e) {
+      alert(`删除失败: ${e}`)
+    }
   }
 
   const handleRefreshConversation = async () => {

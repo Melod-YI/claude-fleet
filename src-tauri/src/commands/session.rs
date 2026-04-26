@@ -1,5 +1,5 @@
 use crate::utils::claude_data::{
-    get_all_sessions, get_session_conversation, ClaudeSession, Conversation,
+    get_all_sessions, get_session_conversation, delete_session, ClaudeSession, Conversation,
 };
 use crate::utils::hooks::{start_hook_server, stop_hook_server, handle_hook_event, HookEvent};
 
@@ -19,6 +19,12 @@ pub fn get_conversation(session_id: String) -> Result<Conversation, String> {
 #[tauri::command]
 pub fn refresh_sessions() -> Result<Vec<ClaudeSession>, String> {
     get_all_sessions()
+}
+
+/// 删除 session
+#[tauri::command]
+pub fn delete_session_cmd(session_id: String) -> Result<(), String> {
+    delete_session(&session_id)
 }
 
 /// 启动新的 Claude Code session

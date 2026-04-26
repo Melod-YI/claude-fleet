@@ -10,6 +10,7 @@ use commands::session::{
     stop_hooks,
     receive_hook_event,
     send_notification,
+    delete_session_cmd,
 };
 use commands::terminal::{jump_to_terminal, resume_in_terminal};
 
@@ -28,7 +29,8 @@ pub fn run() {
             receive_hook_event,
             send_notification,
             jump_to_terminal,
-            resume_in_terminal
+            resume_in_terminal,
+            delete_session_cmd
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

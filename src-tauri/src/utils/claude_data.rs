@@ -500,3 +500,33 @@ pub fn get_session_conversation(session_id: &str) -> Result<Conversation, String
 
     Err(format!("Session {} 不存在", session_id))
 }
+
+/// 删除 session 文件
+pub fn delete_session(session_id: &str) -> Result<(), String> {
+    let projects_dir = get_projects_dir();
+
+    // 遍历找到对应 session 文件
+    for entry in fs::read_dir(&projects_dir)
+        .map_err(|e| format!("读取项目目录失败: {}", e))?
+    {
+        let project_dir = entry
+            .map_err(|e| format!("读取条目失败: {}", e))?
+            .path();
+
+        let sessions_dir = project_dir;
+
+        if !sessions_dir.exists() {
+            continue;
+        }
+
+        let session_file = sessions_dir.join(format!("{}.jsonl", session_id));
+
+        if session_file.exists() {
+            fs::remove_file(&session_file)
+                .map_err(|e| format!("删除 session 文件失败: {}", e))?;
+            return Ok(())
+        }
+    }
+
+    Err(format!("Session {} 不存在", session_id))
+}
