@@ -2,13 +2,15 @@ import { useState } from "react"
 import { SplitPane } from "@/components/layout"
 import { SessionList } from "./SessionList"
 import { SessionDetail } from "./SessionDetail"
-import { useSessionStore } from "@/stores"
+import { NewSessionDialog } from "@/components/dialogs"
+import { useSessionStore, useSettingsStore } from "@/stores"
 import type { ClaudeSession } from "@/types"
 
 export function ManagementTab() {
   const [selectedSession, setSelectedSession] = useState<ClaudeSession | null>(null)
   const { currentConversation, selectSession, loading: conversationLoading } = useSessionStore()
-  const [_showNewSessionDialog, setShowNewSessionDialog] = useState(false)
+  const { favoritePaths, addFavoritePath } = useSettingsStore()
+  const [showNewSessionDialog, setShowNewSessionDialog] = useState(false)
 
   const handleSelectSession = async (session: ClaudeSession) => {
     setSelectedSession(session)
@@ -17,7 +19,10 @@ export function ManagementTab() {
 
   const handleNewSession = () => {
     setShowNewSessionDialog(true)
-    // Phase 6 实现
+  }
+
+  const handleCloseNewSessionDialog = () => {
+    setShowNewSessionDialog(false)
   }
 
   const handleResume = (sessionId: string) => {
@@ -37,31 +42,40 @@ export function ManagementTab() {
   }
 
   return (
-    <SplitPane
-      left={
-        <SessionList
-          selectedSessionId={selectedSession?.id || null}
-          onSelectSession={handleSelectSession}
-          onNewSession={handleNewSession}
-        />
-      }
-      right={
-        selectedSession ? (
-          <SessionDetail
-            session={selectedSession}
-            conversation={currentConversation}
-            conversationLoading={conversationLoading}
-            onResume={handleResume}
-            onDelete={handleDelete}
-            onRefresh={handleRefreshConversation}
+    <>
+      <SplitPane
+        left={
+          <SessionList
+            selectedSessionId={selectedSession?.id || null}
+            onSelectSession={handleSelectSession}
+            onNewSession={handleNewSession}
           />
-        ) : (
-          <div className="flex items-center justify-center h-full text-gray-500">
-            请从左侧列表选择一个 session
-          </div>
-        )
-      }
-      leftWidth={280}
-    />
+        }
+        right={
+          selectedSession ? (
+            <SessionDetail
+              session={selectedSession}
+              conversation={currentConversation}
+              conversationLoading={conversationLoading}
+              onResume={handleResume}
+              onDelete={handleDelete}
+              onRefresh={handleRefreshConversation}
+            />
+          ) : (
+            <div className="flex items-center justify-center h-full text-gray-500">
+              请从左侧列表选择一个 session
+            </div>
+          )
+        }
+        leftWidth={280}
+      />
+
+      <NewSessionDialog
+        open={showNewSessionDialog}
+        onClose={handleCloseNewSessionDialog}
+        favoritePaths={favoritePaths.paths}
+        onAddFavoritePath={addFavoritePath}
+      />
+    </>
   )
 }

@@ -32,7 +32,7 @@ export function NewSessionDialog({
   const handleBrowse = async () => {
     // 调用 Tauri 打开文件夹选择对话框
     try {
-      const selectedPath = await window.__TAURI__.dialog.open({
+      const selectedPath = await window.__TAURI__?.dialog.open({
         directory: true,
         multiple: false,
       })
@@ -61,7 +61,7 @@ export function NewSessionDialog({
 
     try {
       // 调用 Tauri 命令启动 Claude Code
-      await window.__TAURI__.invoke('start_new_session', {
+      await window.__TAURI__?.invoke('start_new_session', {
         workingDirectory,
         name: sessionName || undefined,
       })
