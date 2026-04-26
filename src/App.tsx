@@ -1,13 +1,12 @@
-import "./index.css"
+import { AppLayout } from "@/components/layout"
 
 function App() {
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold text-primary mb-4">Claude Fleet</h1>
-        <p className="text-muted-foreground">项目初始化中...</p>
+    <AppLayout>
+      <div className="flex items-center justify-center h-full text-muted-foreground">
+        Session 内容区域（待实现）
       </div>
-    </div>
+    </AppLayout>
   )
 }
 
