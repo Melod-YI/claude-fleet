@@ -1,21 +1,18 @@
+import { useState } from "react"
 import { AppLayout } from "@/components/layout"
-import { useSessions } from "@/hooks"
-import { useEffect } from "react"
+import { RunningTab } from "@/components/running"
 
 function App() {
-  const { sessions, loading, error } = useSessions()
-
-  useEffect(() => {
-    console.log("Sessions:", sessions)
-  }, [sessions])
+  const [activeTab, setActiveTab] = useState("running")
 
   return (
-    <AppLayout>
-      <div className="flex items-center justify-center h-full text-muted-foreground">
-        {loading && "加载中..."}
-        {error && `错误: ${error}`}
-        {!loading && !error && `已加载 ${sessions.length} 个 session`}
-      </div>
+    <AppLayout activeTab={activeTab} onTabChange={setActiveTab}>
+      {activeTab === "running" && <RunningTab />}
+      {activeTab === "management" && (
+        <div className="flex items-center justify-center h-full text-muted-foreground">
+          Session 管理（Phase 4 实现）
+        </div>
+      )}
     </AppLayout>
   )
 }

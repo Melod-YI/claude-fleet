@@ -1,8 +1,9 @@
-import { useState } from "react"
 import { TabHeader } from "./TabHeader"
 
 interface AppLayoutProps {
   children: React.ReactNode
+  activeTab: string
+  onTabChange: (tab: string) => void
 }
 
 const TABS = [
@@ -10,9 +11,7 @@ const TABS = [
   { id: "management", label: "Session 管理" },
 ]
 
-export function AppLayout({ children }: AppLayoutProps) {
-  const [activeTab, setActiveTab] = useState("running")
-
+export function AppLayout({ children, activeTab, onTabChange }: AppLayoutProps) {
   return (
     <div className="flex flex-col h-screen bg-background">
       <header className="flex items-center justify-between px-4 py-2 border-b">
@@ -21,7 +20,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           {/* 后续添加设置按钮 */}
         </div>
       </header>
-      <TabHeader tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab} />
+      <TabHeader tabs={TABS} activeTab={activeTab} onTabChange={onTabChange} />
       <main className="flex-1 overflow-hidden">
         {children}
       </main>
