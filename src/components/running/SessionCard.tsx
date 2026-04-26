@@ -3,6 +3,7 @@ import type { ClaudeSession } from "@/types"
 import { StatusBadge } from "./StatusBadge"
 import { Button } from "@/components/ui/button"
 import { formatRelativeTime } from "@/utils"
+import { jumpToTerminal } from "@/services"
 import { Star } from "lucide-react"
 
 interface SessionCardProps {
@@ -13,6 +14,19 @@ interface SessionCardProps {
 
 export function SessionCard({ session, onJumpToTerminal, onToggleFavorite }: SessionCardProps) {
   const isWaitingInput = session.status === "waiting_input"
+
+  const handleJump = async () => {
+    try {
+      await jumpToTerminal(session)
+    } catch (e) {
+      // 调用备用方案或显示错误
+      if (onJumpToTerminal) {
+        onJumpToTerminal(session.id)
+      } else {
+        alert(String(e))
+      }
+    }
+  }
 
   return (
     <div
@@ -43,7 +57,7 @@ export function SessionCard({ session, onJumpToTerminal, onToggleFavorite }: Ses
           <Button
             variant={isWaitingInput ? "default" : "secondary"}
             size="sm"
-            onClick={() => onJumpToTerminal?.(session.id)}
+            onClick={handleJump}
             className={isWaitingInput ? "bg-violet-600 hover:bg-violet-700" : ""}
           >
             跳转到终端

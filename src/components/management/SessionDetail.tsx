@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input"
 import { StatusBadge } from "@/components/running"
 import { ConversationView } from "./ConversationView"
 import { useFavoriteStore } from "@/stores"
+import { resumeInTerminal } from "@/services"
 import { ArrowLeft, Star, Trash2, Copy, Check, RefreshCw } from "lucide-react"
 import { formatRelativeTime } from "@/utils"
 
@@ -14,7 +15,6 @@ interface SessionDetailProps {
   conversation: Conversation | null
   conversationLoading: boolean
   onBack?: () => void
-  onResume: (sessionId: string) => void
   onDelete: (sessionId: string) => void
   onRefresh: () => void
 }
@@ -24,7 +24,6 @@ export function SessionDetail({
   conversation,
   conversationLoading,
   onBack,
-  onResume,
   onDelete,
   onRefresh,
 }: SessionDetailProps) {
@@ -48,6 +47,14 @@ export function SessionDetail({
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const handleResume = async () => {
+    try {
+      await resumeInTerminal(session)
+    } catch (e) {
+      alert(String(e))
+    }
+  }
+
   const handleDelete = () => {
     if (session.isFavorite) {
       alert("请先取消收藏再删除")
@@ -69,7 +76,7 @@ export function SessionDetail({
           <Button
             variant="default"
             size="sm"
-            onClick={() => onResume(session.id)}
+            onClick={handleResume}
             className="bg-violet-600 hover:bg-violet-700"
           >
             恢复 Session

@@ -25,11 +25,6 @@ export function ManagementTab() {
     setShowNewSessionDialog(false)
   }
 
-  const handleResume = (sessionId: string) => {
-    // Phase 6 实现
-    console.log("Resume session:", sessionId)
-  }
-
   const handleDelete = (sessionId: string) => {
     // Phase 6 实现
     console.log("Delete session:", sessionId)
@@ -57,7 +52,6 @@ export function ManagementTab() {
               session={selectedSession}
               conversation={currentConversation}
               conversationLoading={conversationLoading}
-              onResume={handleResume}
               onDelete={handleDelete}
               onRefresh={handleRefreshConversation}
             />
