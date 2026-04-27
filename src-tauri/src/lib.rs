@@ -12,7 +12,7 @@ use commands::session::{
     send_notification,
     delete_session_cmd,
 };
-use commands::terminal::{jump_to_terminal, resume_in_terminal};
+use commands::terminal::{jump_to_terminal, jump_to_terminal_by_pid, smart_jump_to_terminal, resume_in_terminal};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -29,6 +29,8 @@ pub fn run() {
             receive_hook_event,
             send_notification,
             jump_to_terminal,
+            jump_to_terminal_by_pid,
+            smart_jump_to_terminal,
             resume_in_terminal,
             delete_session_cmd
         ])

@@ -2,18 +2,32 @@ import { invoke } from '@tauri-apps/api/core'
 import type { ClaudeSession } from '@/types'
 
 /**
- * 跳转到终端窗口
- * 查找并激活与指定 session 关联的 Windows Terminal 窗口
+ * 智能跳转到终端窗口
+ * 先通过进程 ID 精确匹配，失败则通过路径匹配
  */
 export async function jumpToTerminal(session: ClaudeSession): Promise<void> {
   try {
-    await invoke('jump_to_terminal', {
+    await invoke('smart_jump_to_terminal', {
       workingDirectory: session.workingDirectory,
+      processId: session.processId,
     })
   } catch (error) {
     // 失败时，复制路径到剪贴板作为备用方案
     await navigator.clipboard.writeText(session.workingDirectory)
     throw new Error(`跳转失败，路径已复制到剪贴板: ${error}`)
+  }
+}
+
+/**
+ * 通过进程 ID 精确跳转到终端窗口
+ */
+export async function jumpToTerminalByPid(processId: number): Promise<void> {
+  try {
+    await invoke('jump_to_terminal_by_pid', {
+      processId,
+    })
+  } catch (error) {
+    throw new Error(`跳转失败: ${error}`)
   }
 }
 
