@@ -1,7 +1,7 @@
 use crate::utils::claude_data::{
     get_all_sessions, get_session_conversation, delete_session, ClaudeSession, Conversation,
 };
-use crate::utils::hooks::{start_hook_server, stop_hook_server, handle_hook_event, HookEvent};
+use crate::utils::hooks::{start_hook_receiver, stop_hook_receiver, handle_hook_event, HookEvent};
 
 /// 获取所有 session 列表
 #[tauri::command]
@@ -69,16 +69,16 @@ pub async fn start_new_session(
     }
 }
 
-/// 启动钩子服务
+/// 启动钩子服务（文件监听方式）
 #[tauri::command]
 pub fn start_hooks(app: tauri::AppHandle) -> Result<(), String> {
-    start_hook_server(app)
+    start_hook_receiver(app)
 }
 
 /// 停止钩子服务
 #[tauri::command]
 pub fn stop_hooks() -> Result<(), String> {
-    stop_hook_server();
+    stop_hook_receiver();
     Ok(())
 }
 

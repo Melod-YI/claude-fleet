@@ -1,107 +1,183 @@
+use notify::{Watcher, RecursiveMode, Event, EventKind, RecommendedWatcher};
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 use tauri::Emitter;
 
-static HOOK_SERVER_RUNNING: AtomicBool = AtomicBool::new(false);
+static HOOK_RECEIVER_RUNNING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HookEvent {
-    pub event_type: String,  // "session_start", "waiting_input", "session_end"
+    pub event: String,  // "start", "idle", "stop", "end"
     pub session_id: String,
-    pub working_directory: String,
-    pub timestamp: String,
+    pub cwd: Option<String>,
 }
 
-/// 启动钩子接收服务（轮询检查 session 状态变化）
-pub fn start_hook_server(app_handle: tauri::AppHandle) -> Result<(), String> {
-    if HOOK_SERVER_RUNNING.load(Ordering::SeqCst) {
-        return Ok(())
+/// 获取事件目录路径
+fn get_events_dir() -> PathBuf {
+    dirs::home_dir()
+        .expect("无法获取用户目录")
+        .join(".claude-fleet")
+        .join("events")
+}
+
+/// 清理事件目录中的所有文件
+pub fn cleanup_events_dir() -> Result<(), String> {
+    let events_dir = get_events_dir();
+
+    if events_dir.exists() {
+        // 删除目录中的所有文件，但保留目录本身
+        for entry in fs::read_dir(&events_dir)
+            .map_err(|e| format!("读取事件目录失败: {}", e))?
+        {
+            let file_path = entry
+                .map_err(|e| format!("读取条目失败: {}", e))?
+                .path();
+
+            if file_path.is_file() {
+                fs::remove_file(&file_path)
+                    .map_err(|e| format!("删除文件 {} 失败: {}", file_path.display(), e))?;
+            }
+        }
+    } else {
+        // 创建目录
+        fs::create_dir_all(&events_dir)
+            .map_err(|e| format!("创建事件目录失败: {}", e))?;
     }
 
-    HOOK_SERVER_RUNNING.store(true, Ordering::SeqCst);
+    Ok(())
+}
 
-    // 在后台线程启动轮询服务
-    // 定期检查 session 文件变化，检测 waiting_input 状态
+/// 启动钩子事件接收服务（文件监听方式）
+pub fn start_hook_receiver(app_handle: tauri::AppHandle) -> Result<(), String> {
+    if HOOK_RECEIVER_RUNNING.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+
+    HOOK_RECEIVER_RUNNING.store(true, Ordering::SeqCst);
+
+    let events_dir = get_events_dir();
+
+    // 启动时清理历史文件
+    cleanup_events_dir()?;
+
+    // 创建监听器
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut watcher: RecommendedWatcher = notify::recommended_watcher(tx)
+        .map_err(|e| format!("创建文件监听器失败: {}", e))?;
+
+    // 开始监听事件目录
+    watcher.watch(&events_dir, RecursiveMode::NonRecursive)
+        .map_err(|e| format!("监听事件目录失败: {}", e))?;
+
+    // 处理事件的后台线程
+    let app_handle_clone = app_handle.clone();
+    let events_dir_clone = events_dir.clone();
+
     thread::spawn(move || {
-        let mut last_waiting_sessions: std::collections::HashSet<String> = std::collections::HashSet::new();
-
         loop {
-            if !HOOK_SERVER_RUNNING.load(Ordering::SeqCst) {
+            if !HOOK_RECEIVER_RUNNING.load(Ordering::SeqCst) {
                 break;
             }
 
-            // 获取当前所有 session
-            if let Ok(sessions) = crate::utils::claude_data::get_all_sessions() {
-                let mut current_waiting: std::collections::HashSet<String> = std::collections::HashSet::new();
-
-                for session in &sessions {
-                    if session.status == "running" {
-                        // 检查是否是新进入等待状态的 session
-                        if !last_waiting_sessions.contains(&session.id) {
-                            // 发送等待输入事件到前端
-                            let event = HookEvent {
-                                event_type: "waiting_input".to_string(),
-                                session_id: session.id.clone(),
-                                working_directory: session.working_directory.clone(),
-                                timestamp: chrono::Local::now().to_rfc3339(),
-                            };
-
-                            // 通过 Tauri 事件系统发送
-                            if let Err(e) = app_handle.emit("hook_event", &event) {
-                                eprintln!("发送钩子事件失败: {}", e);
-                            }
-                        }
-                        current_waiting.insert(session.id.clone());
+            // 接收文件系统事件
+            match rx.recv_timeout(Duration::from_millis(500)) {
+                Ok(result) => {
+                    // result 是 Result<Event, Error>
+                    if let Ok(event) = result {
+                        process_file_event(&event, &app_handle_clone);
                     }
                 }
-
-                // 检测 session 结束（之前在运行，现在不在列表中）
-                for old_session_id in &last_waiting_sessions {
-                    if !current_waiting.contains(old_session_id) {
-                        let event = HookEvent {
-                            event_type: "session_end".to_string(),
-                            session_id: old_session_id.clone(),
-                            working_directory: String::new(),
-                            timestamp: chrono::Local::now().to_rfc3339(),
-                        };
-
-                        if let Err(e) = app_handle.emit("hook_event", &event) {
-                            eprintln!("发送钩子事件失败: {}", e);
-                        }
-                    }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    // 继续循环
                 }
-
-                last_waiting_sessions = current_waiting;
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    break;
+                }
             }
-
-            // 每 2 秒检查一次
-            thread::sleep(Duration::from_secs(2));
         }
+
+        // 退出时清理
+        cleanup_events_dir_on_exit(&events_dir_clone);
     });
 
     Ok(())
 }
 
-/// 停止钩子接收服务
-pub fn stop_hook_server() {
-    HOOK_SERVER_RUNNING.store(false, Ordering::SeqCst);
+/// 处理文件系统事件
+fn process_file_event(event: &Event, app_handle: &tauri::AppHandle) {
+    // 只处理文件创建事件
+    if event.kind != EventKind::Create(notify::event::CreateKind::File) {
+        return;
+    }
+
+    for path in &event.paths {
+        // 只处理 JSON 文件
+        if path.extension().and_then(|s| s.to_str()) != Some("json") {
+            continue;
+        }
+
+        // 读取文件内容
+        if let Ok(content) = fs::read_to_string(path) {
+            // 解析 HookEvent
+            if let Ok(hook_event) = serde_json::from_str::<HookEvent>(&content) {
+                // 发送到前端
+                if let Err(e) = app_handle.emit("hook_event", &hook_event) {
+                    eprintln!("发送钩子事件失败: {}", e);
+                }
+
+                println!("收到钩子事件: {} - {}", hook_event.event, hook_event.session_id);
+            }
+        }
+
+        // 立即删除已处理的文件（防止堆积）
+        if let Err(e) = fs::remove_file(path) {
+            eprintln!("删除事件文件 {} 失败: {}", path.display(), e);
+        }
+    }
 }
 
-/// 处理钩子事件
+/// 退出时清理事件目录
+fn cleanup_events_dir_on_exit(events_dir: &PathBuf) {
+    if events_dir.exists() {
+        // 删除目录中的所有文件
+        if let Ok(entries) = fs::read_dir(events_dir) {
+            for entry in entries {
+                if let Ok(entry) = entry {
+                    let file_path = entry.path();
+                    if file_path.is_file() {
+                        fs::remove_file(&file_path).ok();
+                    }
+                }
+            }
+        }
+        // 不删除目录本身，以便下次启动时可以直接使用
+    }
+}
+
+/// 停止钩子接收服务
+pub fn stop_hook_receiver() {
+    HOOK_RECEIVER_RUNNING.store(false, Ordering::SeqCst);
+}
+
+/// 处理钩子事件（供外部调用）
 pub fn handle_hook_event(event: HookEvent) -> Result<(), String> {
-    // 根据事件类型处理
-    match event.event_type.as_str() {
-        "session_start" => {
-            // 新 session 启动
+    match event.event.as_str() {
+        "start" => {
             println!("Session started: {}", event.session_id);
         }
-        "waiting_input" => {
+        "idle" => {
             // 等待用户输入 - 这是主要关注的事件
-            println!("Session waiting input: {}", event.session_id);
+            println!("Session idle (waiting for input): {}", event.session_id);
         }
-        "session_end" => {
+        "stop" => {
+            // Claude 完成响应
+            println!("Session stopped (response complete): {}", event.session_id);
+        }
+        "end" => {
             // Session 结束
             println!("Session ended: {}", event.session_id);
         }
@@ -114,4 +190,9 @@ pub fn handle_hook_event(event: HookEvent) -> Result<(), String> {
 pub fn trigger_hook_event(app_handle: &tauri::AppHandle, event: HookEvent) -> Result<(), String> {
     app_handle.emit("hook_event", &event)
         .map_err(|e| format!("发送事件失败: {}", e))
+}
+
+/// 获取事件目录路径（供外部查询）
+pub fn get_events_dir_path() -> String {
+    get_events_dir().to_string_lossy().to_string()
 }

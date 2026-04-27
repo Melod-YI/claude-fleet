@@ -4,15 +4,14 @@ import { useSettingsStore, useSessionStore } from '@/stores'
 import { sendDesktopNotification, initNotificationService, playNotificationSound } from '@/services'
 
 interface HookEvent {
-  event_type: string
+  event: string  // "start", "idle", "stop", "end"
   session_id: string
-  working_directory: string
-  timestamp: string
+  cwd?: string
 }
 
 export function useNotification() {
   const { notificationSound, notificationDesktop } = useSettingsStore()
-  const { sessions } = useSessionStore()
+  const { sessions, refresh } = useSessionStore()
   const notifiedSessions = useRef<Set<string>>(new Set())
   const unlistenRef = useRef<UnlistenFn | null>(null)
 
@@ -22,11 +21,14 @@ export function useNotification() {
   }, [])
 
   // 发送通知的函数
-  const sendNotification = useCallback((sessionId: string, sessionName: string) => {
+  const sendNotification = useCallback((sessionId: string, sessionName: string, cwd?: string) => {
+    // 从 cwd 提取目录名作为备用名称
+    const fallbackName = cwd?.split(/[\\/]/).pop() || sessionId
+
     if (notificationDesktop) {
       sendDesktopNotification({
         title: 'Claude Fleet - 等待输入',
-        body: `Session "${sessionName}" 正在等待输入`,
+        body: `Session "${sessionName || fallbackName}" 正在等待输入`,
         sessionId,
         sound: notificationSound,
       })
@@ -35,29 +37,35 @@ export function useNotification() {
     }
   }, [notificationDesktop, notificationSound])
 
-  // 监听来自 Rust 的钩子事件
+  // 监听来自 Rust 的钩子事件（文件监听方式）
   useEffect(() => {
     const setupListener = async () => {
       unlistenRef.current = await listen<HookEvent>('hook_event', (event) => {
         const payload = event.payload
 
-        if (payload.event_type === 'waiting_input') {
-          // 检查是否已经通知过此 session
+        console.log('收到钩子事件:', payload.event, payload.session_id)
+
+        if (payload.event === 'idle') {
+          // 等待用户输入 - 检查是否已经通知过
           if (!notifiedSessions.current.has(payload.session_id)) {
             notifiedSessions.current.add(payload.session_id)
 
             // 找到对应的 session 获取名称
             const session = sessions.find((s) => s.id === payload.session_id)
-            const sessionName = session?.name || payload.working_directory.split(/[\\/]/).pop() || payload.session_id
-
-            sendNotification(payload.session_id, sessionName)
+            sendNotification(payload.session_id, session?.name || '', payload.cwd)
           }
-        } else if (payload.event_type === 'session_end') {
-          // Session 结束，清除通知记录
+        } else if (payload.event === 'stop') {
+          // Claude 完成响应 - 清除等待状态记录，刷新 session 列表
           notifiedSessions.current.delete(payload.session_id)
-        } else if (payload.event_type === 'session_start') {
-          // Session 启动，清除之前的通知记录（如果是重启）
+          // 可选：刷新列表以获取最新状态
+          refresh()
+        } else if (payload.event === 'end') {
+          // Session 结束 - 清除通知记录
           notifiedSessions.current.delete(payload.session_id)
+          refresh()
+        } else if (payload.event === 'start') {
+          // Session 启动 - 刷新列表
+          refresh()
         }
       })
     }
@@ -70,31 +78,7 @@ export function useNotification() {
         unlistenRef.current = null
       }
     }
-  }, [sessions, sendNotification])
-
-  // 定期检查 session 状态（备用方案）
-  useEffect(() => {
-    const checkInterval = setInterval(() => {
-      for (const session of sessions) {
-        if (session.status === 'running') {
-          // 状态为 running 时，检查是否需要通知
-          if (!notifiedSessions.current.has(session.id)) {
-            notifiedSessions.current.add(session.id)
-
-            // 检查是否启用了通知
-            if (notificationDesktop || notificationSound) {
-              sendNotification(session.id, session.name)
-            }
-          }
-        } else {
-          // 状态变化（不再是 running），清除通知记录
-          notifiedSessions.current.delete(session.id)
-        }
-      }
-    }, 5000) // 每 5 秒检查一次
-
-    return () => clearInterval(checkInterval)
-  }, [sessions, notificationSound, notificationDesktop, sendNotification])
+  }, [sessions, sendNotification, refresh])
 
   // 手动触发通知的方法
   const notify = useCallback((sessionId: string, customMessage?: string) => {
