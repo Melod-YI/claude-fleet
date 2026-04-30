@@ -42,11 +42,17 @@ pub struct Conversation {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunningSessionMetadata {
     pub pid: u32,
+    #[serde(rename = "sessionId")]
     pub session_id: String,
     pub cwd: String,
+    #[serde(rename = "startedAt")]
     pub started_at: u64,
     pub kind: String,
     pub entrypoint: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(rename = "updatedAt", default)]
+    pub updated_at: Option<u64>,
 }
 
 /// JSONL 行类型枚举
@@ -156,8 +162,10 @@ pub fn decode_project_path(project_name: &str) -> String {
 /// 获取运行中 session 的元数据
 pub fn get_running_sessions() -> Result<Vec<RunningSessionMetadata>, String> {
     let sessions_dir = get_sessions_dir();
+    println!("读取 sessions 目录: {}", sessions_dir.display());
 
     if !sessions_dir.exists() {
+        println!("sessions 目录不存在");
         return Ok(Vec::new());
     }
 
@@ -177,12 +185,88 @@ pub fn get_running_sessions() -> Result<Vec<RunningSessionMetadata>, String> {
         let content = fs::read_to_string(&file_path)
             .map_err(|e| format!("读取文件 {} 失败: {}", file_path.display(), e))?;
 
+        println!("解析 session 文件: {} -> {}", file_path.display(), content);
+
         if let Ok(metadata) = serde_json::from_str::<RunningSessionMetadata>(&content) {
+            println!("成功解析: pid={}, session_id={}", metadata.pid, metadata.session_id);
             running_sessions.push(metadata);
+        } else {
+            println!("解析失败: {}", file_path.display());
         }
     }
 
+    println!("找到 {} 个运行中 session", running_sessions.len());
     Ok(running_sessions)
+}
+
+/// 获取运行中 session 列表（仅从 sessions/*.json）
+/// 不遍历 projects 目录，性能更好，用于 Running Tab
+pub fn get_running_sessions_list() -> Result<Vec<ClaudeSession>, String> {
+    let sessions_dir = get_sessions_dir();
+
+    if !sessions_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut sessions: Vec<ClaudeSession> = Vec::new();
+
+    for entry in fs::read_dir(&sessions_dir)
+        .map_err(|e| format!("读取 sessions 目录失败: {}", e))?
+    {
+        let file_path = entry
+            .map_err(|e| format!("读取条目失败: {}", e))?
+            .path();
+
+        if file_path.extension().and_then(|s| s.to_str()) != Some("json") {
+            continue;
+        }
+
+        let content = fs::read_to_string(&file_path)
+            .map_err(|e| format!("读取文件 {} 失败: {}", file_path.display(), e))?;
+
+        if let Ok(metadata) = serde_json::from_str::<RunningSessionMetadata>(&content) {
+            // 检查进程是否在运行
+            let status = if is_process_running(metadata.pid) {
+                // metadata.status 可能是 "busy" 或 "idle"
+                if metadata.status == "idle" {
+                    "waiting_input".to_string()
+                } else {
+                    "running".to_string()
+                }
+            } else {
+                // 进程不在运行，跳过
+                continue;
+            };
+
+            let name = get_last_path_segment(&metadata.cwd);
+
+            sessions.push(ClaudeSession {
+                id: metadata.session_id.clone(),
+                name,
+                working_directory: metadata.cwd,
+                status,
+                created_at: format!("{}", metadata.started_at),
+                last_activity_at: metadata.updated_at.map(|u| format!("{}", u)).unwrap_or_default(),
+                conversation_count: 0,
+                is_favorite: false,
+                terminal_window_id: None,
+                process_id: Some(metadata.pid),
+            });
+        }
+    }
+
+    // 按状态排序：waiting_input 优先
+    sessions.sort_by(|a, b| {
+        if a.status == "waiting_input" && b.status != "waiting_input" {
+            std::cmp::Ordering::Less
+        } else if a.status != "waiting_input" && b.status == "waiting_input" {
+            std::cmp::Ordering::Greater
+        } else {
+            std::cmp::Ordering::Equal
+        }
+    });
+
+    Ok(sessions)
 }
 
 /// 解析单个 session JSONL 文件
@@ -365,14 +449,18 @@ fn get_last_path_segment(path: &str) -> String {
 
 /// 获取所有 session 列表
 pub fn get_all_sessions() -> Result<Vec<ClaudeSession>, String> {
+    println!("开始获取 session 列表");
     let projects_dir = get_projects_dir();
+    println!("projects 目录: {}", projects_dir.display());
 
     if !projects_dir.exists() {
+        println!("projects 目录不存在");
         return Ok(Vec::new());
     }
 
     // 获取运行中 session 的 PID 映射
     let running_sessions = get_running_sessions()?;
+    println!("运行中 session 数量: {}", running_sessions.len());
     let running_map: std::collections::HashMap<String, u32> = running_sessions
         .iter()
         .map(|s| (s.session_id.clone(), s.pid))
@@ -396,6 +484,7 @@ pub fn get_all_sessions() -> Result<Vec<ClaudeSession>, String> {
         let decoded_path = decode_project_path(project_name);
 
         // 遍历项目目录下的所有 jsonl 文件
+        let mut jsonl_count = 0;
         for project_entry in fs::read_dir(&project_dir)
             .map_err(|e| format!("读取项目 {} 目录失败: {}", project_dir.display(), e))?
         {
@@ -407,6 +496,8 @@ pub fn get_all_sessions() -> Result<Vec<ClaudeSession>, String> {
             if entry_path.extension().and_then(|s| s.to_str()) != Some("jsonl") {
                 continue;
             }
+
+            jsonl_count += 1;
 
             if let Ok((session, _)) = parse_session_file(&entry_path, &decoded_path) {
                 // 检查是否正在运行
@@ -429,7 +520,12 @@ pub fn get_all_sessions() -> Result<Vec<ClaudeSession>, String> {
                 });
             }
         }
+        if jsonl_count > 0 {
+            println!("项目 {} 有 {} 个 jsonl 文件", project_name, jsonl_count);
+        }
     }
+
+    println!("总共找到 {} 个 session", sessions.len());
 
     // 按最后活动时间排序（最近的在前）
     sessions.sort_by(|a, b| b.last_activity_at.cmp(&a.last_activity_at));
@@ -468,6 +564,40 @@ fn is_process_running(pid: u32) -> bool {
         } else {
             false
         }
+    }
+}
+
+/// 检查 PID 是否为 claude 进程
+#[cfg(target_os = "windows")]
+pub fn is_claude_process_running(pid: u32) -> bool {
+    use std::process::Command;
+
+    let output = Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {}", pid), "/NH"])
+        .output();
+
+    if let Ok(output) = output {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // 检查 PID 存在且进程名包含 "claude"
+        stdout.contains(&pid.to_string()) && stdout.to_lowercase().contains("claude")
+    } else {
+        false
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn is_claude_process_running(pid: u32) -> bool {
+    use std::process::Command;
+
+    let output = Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "comm="])
+        .output();
+
+    if let Ok(output) = output {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        stdout.to_lowercase().contains("claude")
+    } else {
+        false
     }
 }
 

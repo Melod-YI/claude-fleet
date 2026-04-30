@@ -1,13 +1,54 @@
 use crate::utils::claude_data::{
-    get_all_sessions, get_session_conversation, delete_session, ClaudeSession, Conversation,
+    get_all_sessions, get_session_conversation, delete_session, get_running_sessions_list,
+    ClaudeSession, Conversation,
 };
-use crate::utils::hooks::{start_hook_receiver, stop_hook_receiver, handle_hook_event, HookEvent};
+use crate::utils::hooks::{start_hook_receiver, stop_hook_receiver, handle_hook_event};
+use crate::utils::running_sessions::{
+    init_running_sessions,
+    get_running_sessions,
+    start_polling,
+    stop_polling,
+    RunningSession,
+    HookEvent,
+};
 
-/// 获取所有 session 列表
+/// 获取所有 session 列表（用于管理 Tab）
 #[tauri::command]
 pub fn list_sessions() -> Result<Vec<ClaudeSession>, String> {
     get_all_sessions()
 }
+
+/// 初始化运行中 session 列表（应用启动时调用）
+#[tauri::command]
+pub fn init_running() -> Result<Vec<RunningSession>, String> {
+    init_running_sessions()
+}
+
+/// 获取运行中 session 列表
+#[tauri::command]
+pub fn list_running() -> Result<Vec<RunningSession>, String> {
+    Ok(get_running_sessions())
+}
+
+/// 启动定时轮询
+#[tauri::command]
+pub fn start_polling_cmd(app: tauri::AppHandle) -> Result<(), String> {
+    start_polling(app);
+    Ok(())
+}
+
+/// 停止定时轮询
+#[tauri::command]
+pub fn stop_polling_cmd() -> Result<(), String> {
+    stop_polling();
+    Ok(())
+}
+
+// 旧命令已废弃，使用 list_running 替代
+// #[tauri::command]
+// pub fn list_running_sessions() -> Result<Vec<ClaudeSession>, String> {
+//     get_running_sessions_list()
+// }
 
 /// 获取指定 session 的对话内容
 #[tauri::command]

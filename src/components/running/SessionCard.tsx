@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { formatRelativeTime } from "@/utils"
 import { jumpToTerminal } from "@/services"
 import { Star } from "lucide-react"
+import type { RunningSession } from "@/hooks/useRunningSessions"
 
 interface SessionCardProps {
   session: ClaudeSession
@@ -77,6 +78,49 @@ export function SessionCard({ session, onJumpToTerminal, onToggleFavorite }: Ses
                 : "text-gray-400"
             )}
           />
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+interface SessionCardNewProps {
+  session: RunningSession
+  onJumpToTerminal: (session: RunningSession) => void
+}
+
+export function SessionCardNew({ session, onJumpToTerminal }: SessionCardNewProps) {
+  const isWaitingInput = session.status === "waiting_input"
+
+  return (
+    <div
+      className={cn(
+        "rounded-lg p-4 flex justify-between items-center",
+        "border transition-all",
+        isWaitingInput
+          ? "border-amber-400 bg-amber-50 shadow-sm"
+          : "border-gray-200 bg-white hover:border-gray-300"
+      )}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1">
+          <h3 className="font-semibold text-gray-900 truncate">{session.name}</h3>
+          <StatusBadge status={session.status} />
+        </div>
+        <p className="text-sm text-gray-600 truncate">{session.cwd}</p>
+        <p className="text-xs text-gray-500 mt-1">
+          PID: {session.pid}
+        </p>
+      </div>
+
+      <div className="flex items-center gap-2 ml-4">
+        <Button
+          variant={isWaitingInput ? "default" : "secondary"}
+          size="sm"
+          onClick={() => onJumpToTerminal(session)}
+          className={isWaitingInput ? "bg-violet-600 hover:bg-violet-700" : ""}
+        >
+          跳转到终端
         </Button>
       </div>
     </div>

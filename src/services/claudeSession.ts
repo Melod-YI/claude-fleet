@@ -1,8 +1,23 @@
 import { invoke } from '@tauri-apps/api/core'
 import type { ClaudeSession, Conversation } from '@/types'
+import type { RunningSession } from '@/hooks/useRunningSessions'
 
 /**
- * 获取所有 Claude session 列表
+ * 获取运行中 session 列表（轻量级，用于 Running Tab）
+ * 使用新的增量状态管理
+ */
+export async function listRunningSessions(): Promise<RunningSession[]> {
+  try {
+    const sessions = await invoke<RunningSession[]>('list_running')
+    return sessions
+  } catch (error) {
+    console.error('获取运行中 session 列表失败:', error)
+    throw error
+  }
+}
+
+/**
+ * 获取所有 Claude session 列表（用于 Management Tab）
  */
 export async function listSessions(): Promise<ClaudeSession[]> {
   try {

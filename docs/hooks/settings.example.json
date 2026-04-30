@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -c \"$dir=$env:USERPROFILE+'\\.claude-fleet\\events'; if (!(Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force }; $json='{\"event\":\"stop\",\"session_id\":\"' + $env:CLAUDE_CODE_SESSION_ID + '\",\"cwd\":\"' + $env:CLAUDE_CODE_PROJECT_DIR + '\"}'; $json | Out-File $dir+'\\'+$env:CLAUDE_CODE_SESSION_ID+'_'+(Get-Random)+'.json' -Encoding UTF8\""
+            "command": "python ~/.claude-fleet/hook_writer.py"
           }
         ]
       }
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -c \"$dir=$env:USERPROFILE+'\\.claude-fleet\\events'; if (!(Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force }; $json='{\"event\":\"idle\",\"session_id\":\"' + $env:CLAUDE_CODE_SESSION_ID + '\",\"cwd\":\"' + $env:CLAUDE_CODE_PROJECT_DIR + '\"}'; $json | Out-File $dir+'\\'+$env:CLAUDE_CODE_SESSION_ID+'_'+(Get-Random)+'.json' -Encoding UTF8\""
+            "command": "python ~/.claude-fleet/hook_writer.py"
           }
         ]
       }
@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -c \"$dir=$env:USERPROFILE+'\\.claude-fleet\\events'; if (!(Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force }; $json='{\"event\":\"start\",\"session_id\":\"' + $env:CLAUDE_CODE_SESSION_ID + '\",\"cwd\":\"' + $env:CLAUDE_CODE_PROJECT_DIR + '\"}'; $json | Out-File $dir+'\\'+$env:CLAUDE_CODE_SESSION_ID+'_'+(Get-Random)+'.json' -Encoding UTF8\""
+            "command": "python ~/.claude-fleet/hook_writer.py"
           }
         ]
       }
@@ -36,7 +36,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -c \"$dir=$env:USERPROFILE+'\\.claude-fleet\\events'; if (!(Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force }; $json='{\"event\":\"end\",\"session_id\":\"' + $env:CLAUDE_CODE_SESSION_ID + '\"}'; $json | Out-File $dir+'\\'+$env:CLAUDE_CODE_SESSION_ID+'_'+(Get-Random)+'.json' -Encoding UTF8\""
+            "command": "python ~/.claude-fleet/hook_writer.py"
           }
         ]
       }

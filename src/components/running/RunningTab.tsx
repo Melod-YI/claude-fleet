@@ -1,40 +1,31 @@
-import { useState, useMemo } from "react"
+import { useMemo, useState } from "react"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { SessionCard } from "./SessionCard"
-import { useSessions } from "@/hooks"
-import { searchSessions } from "@/utils"
+import { SessionCardNew } from "./SessionCard"
+import { useRunningSessions, RunningSession } from "@/hooks/useRunningSessions"
+import { jumpToTerminal } from "@/services"
 import { RefreshCw } from "lucide-react"
 
 export function RunningTab() {
-  const { sessions, refresh, toggleFavorite, loading } = useSessions()
-  const [searchQuery, setSearchQuery] = useState("")
+  const { sessions, loading, error, refresh } = useRunningSessions()
   const [refreshing, setRefreshing] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("")
 
-  // 只显示运行中和等待输入的 session
-  const activeSessions = useMemo(() => {
-    const active = sessions.filter(
-      (s) => s.status === "running" || s.status === "waiting_input"
-    )
+  // 搜索过滤
+  const filteredSessions = useMemo(() => {
     if (searchQuery) {
-      return searchSessions(active, searchQuery, ["name", "path"])
+      return sessions.filter((s) =>
+        s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        s.cwd.toLowerCase().includes(searchQuery.toLowerCase())
+      )
     }
-    return active
+    return sessions
   }, [sessions, searchQuery])
 
-  // 按状态排序：等待输入优先
-  const sortedSessions = useMemo(() => {
-    return activeSessions.sort((a, b) => {
-      if (a.status === "waiting_input" && b.status !== "waiting_input") return -1
-      if (a.status !== "waiting_input" && b.status === "waiting_input") return 1
-      return 0
-    })
-  }, [activeSessions])
-
   // 统计
-  const waitingCount = activeSessions.filter((s) => s.status === "waiting_input").length
+  const waitingCount = sessions.filter((s) => s.status === "waiting_input").length
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -42,9 +33,18 @@ export function RunningTab() {
     setRefreshing(false)
   }
 
-  const handleJumpToTerminal = async (sessionId: string) => {
-    // Phase 8 实现
-    console.log("Jump to terminal:", sessionId)
+  const handleJumpToTerminal = async (session: RunningSession) => {
+    try {
+      await jumpToTerminal({
+        id: session.session_id,
+        workingDirectory: session.cwd,
+        processId: session.pid,
+        status: session.status,
+        name: session.name,
+      } as any)
+    } catch (e) {
+      alert(String(e))
+    }
   }
 
   return (
@@ -70,7 +70,7 @@ export function RunningTab() {
       {/* 状态统计 */}
       <div className="flex items-center gap-4 px-4 py-2 border-b text-sm">
         <span className="text-gray-600">
-          共 {activeSessions.length} 个运行中的 session
+          共 {filteredSessions.length} 个运行中的 session
         </span>
         {waitingCount > 0 && (
           <span className="text-amber-600 font-medium">
@@ -85,20 +85,23 @@ export function RunningTab() {
           <div className="text-center text-gray-500 py-8">加载中...</div>
         )}
 
-        {!loading && sortedSessions.length === 0 && (
+        {error && (
+          <div className="text-center text-red-500 py-8">{error}</div>
+        )}
+
+        {!loading && !error && filteredSessions.length === 0 && (
           <div className="text-center text-gray-500 py-8">
             {searchQuery ? "没有匹配的 session" : "没有运行中的 session"}
           </div>
         )}
 
-        {!loading && sortedSessions.length > 0 && (
+        {!loading && !error && filteredSessions.length > 0 && (
           <div className="flex flex-col gap-3">
-            {sortedSessions.map((session) => (
-              <SessionCard
-                key={session.id}
+            {filteredSessions.map((session) => (
+              <SessionCardNew
+                key={session.session_id}
                 session={session}
                 onJumpToTerminal={handleJumpToTerminal}
-                onToggleFavorite={toggleFavorite}
               />
             ))}
           </div>

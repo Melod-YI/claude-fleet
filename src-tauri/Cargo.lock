@@ -321,6 +321,7 @@ dependencies = [
  "chrono",
  "dirs 5.0.1",
  "notify",
+ "once_cell",
  "serde",
  "serde_json",
  "tauri",
