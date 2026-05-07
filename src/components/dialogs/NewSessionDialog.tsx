@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { FolderOpen, Loader2 } from "lucide-react"
+import { open as openDialog } from "@tauri-apps/plugin-dialog"
+import { invoke } from "@tauri-apps/api/core"
 
 interface NewSessionDialogProps {
   open: boolean
@@ -30,9 +32,8 @@ export function NewSessionDialog({
   const [error, setError] = useState<string | null>(null)
 
   const handleBrowse = async () => {
-    // 调用 Tauri 打开文件夹选择对话框
     try {
-      const selectedPath = await window.__TAURI__?.dialog.open({
+      const selectedPath = await openDialog({
         directory: true,
         multiple: false,
       })
@@ -61,7 +62,7 @@ export function NewSessionDialog({
 
     try {
       // 调用 Tauri 命令启动 Claude Code
-      await window.__TAURI__?.invoke('start_new_session', {
+      await invoke('start_new_session', {
         workingDirectory,
         name: sessionName || undefined,
       })
