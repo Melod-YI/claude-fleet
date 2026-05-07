@@ -5,19 +5,26 @@ import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { SessionCardNew } from "./SessionCard"
 import { useRunningSessions, RunningSession } from "@/hooks/useRunningSessions"
+import { useSettingsStore } from "@/stores"
 import { jumpToTerminal } from "@/services"
 import { RefreshCw, Plus } from "lucide-react"
 import { NewSessionDialog } from "@/components/dialogs/NewSessionDialog"
 
 export function RunningTab() {
   const { sessions, loading, error, refresh } = useRunningSessions()
+  const {
+    favoritePaths,
+    recordPathUsage,
+    getSortedFavoritePaths
+  } = useSettingsStore()
   const [refreshing, setRefreshing] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [newSessionOpen, setNewSessionOpen] = useState(false)
-  const [favoritePaths, setFavoritePaths] = useState<string[]>([
-    "C:\\workspace",
-    "D:\\projects",
-  ])
+
+  // 获取排序后的常用路径
+  const sortedFavoritePaths = useMemo(() => {
+    return getSortedFavoritePaths()
+  }, [favoritePaths, getSortedFavoritePaths])
 
   // 搜索过滤
   const filteredSessions = useMemo(() => {
@@ -53,11 +60,8 @@ export function RunningTab() {
     }
   }
 
-  const handleAddFavoritePath = (path: string) => {
-    setFavoritePaths((prev) => {
-      if (prev.includes(path)) return prev
-      return [...prev, path]
-    })
+  const handleRecordPathUsage = (path: string) => {
+    recordPathUsage(path)
   }
 
   const handleNewSessionClose = () => {
@@ -140,8 +144,8 @@ export function RunningTab() {
       <NewSessionDialog
         open={newSessionOpen}
         onClose={handleNewSessionClose}
-        favoritePaths={favoritePaths}
-        onAddFavoritePath={handleAddFavoritePath}
+        favoritePaths={sortedFavoritePaths}
+        onRecordPathUsage={handleRecordPathUsage}
       />
     </div>
   )

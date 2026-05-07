@@ -108,9 +108,13 @@ export function SessionCardNew({ session, onJumpToTerminal }: SessionCardNewProp
           <StatusBadge status={session.status} />
         </div>
         <p className="text-sm text-gray-600 truncate">{session.cwd}</p>
-        <p className="text-xs text-gray-500 mt-1">
-          上次活动: {formatRelativeTimeFromTimestamp(session.updated_at)} · PID: {session.pid}
-        </p>
+        <div className="text-xs text-gray-500 mt-1 flex flex-wrap items-center gap-x-1">
+          <span>上次活动: {formatRelativeTimeFromTimestamp(session.updated_at)}</span>
+          <span className="text-gray-300">|</span>
+          <span>PID: {session.pid}</span>
+          <span className="text-gray-300">|</span>
+          <span>ID: {session.session_id}</span>
+        </div>
       </div>
 
       <div className="flex items-center gap-2 ml-4">

@@ -1,54 +1,51 @@
-import { useEffect, useMemo } from 'react'
-import { useSessionStore, useFavoriteStore } from '@/stores'
-import { searchSessions, filterByTimeRange } from '@/utils'
+import { useMemo } from "react";
+import { useSessionsQuery, useDeleteSessionMutation } from "@/lib/query";
+import { useSessionSearch } from "@/hooks/useSessionSearch";
+import { useFavoriteStore } from "@/stores";
 
-export function useSessions() {
-  const { sessions, filter, loading, error, loadSessions, setFilter } = useSessionStore()
-  const { favorites, isFavorite, toggleFavorite } = useFavoriteStore()
+interface UseSessionsOptions {
+  showFavoritesOnly?: boolean;
+  searchQuery?: string;
+}
 
-  // 初始加载
-  useEffect(() => {
-    loadSessions()
-  }, [loadSessions])
+export function useSessions(options?: UseSessionsOptions) {
+  const { showFavoritesOnly = false, searchQuery = "" } = options ?? {};
+  const { data, isLoading, error, refetch } = useSessionsQuery();
+  const { favorites, isFavorite, toggleFavorite } = useFavoriteStore();
+  const deleteMutation = useDeleteSessionMutation();
 
-  // 合合收藏状态到 session
+  const sessions = data ?? [];
+
+  // Merge favorite status into sessions
   const sessionsWithFavorites = useMemo(() => {
     return sessions.map((session) => ({
       ...session,
-      isFavorite: isFavorite(session.id),
-    }))
-  }, [sessions, favorites])
+      isFavorite: isFavorite(session.sessionId),
+    }));
+  }, [sessions, favorites]);
 
-  // 应用过滤条件
+  // Use FlexSearch for full-text search
+  const { search } = useSessionSearch({ sessions: sessionsWithFavorites });
+
+  // Apply filters
   const filteredSessions = useMemo(() => {
-    let result = sessionsWithFavorites
+    let result = search(searchQuery);
 
-    // 收藏过滤
-    if (filter.showFavoritesOnly) {
-      result = result.filter((s) => s.isFavorite)
+    if (showFavoritesOnly) {
+      result = result.filter((s) => s.isFavorite);
     }
 
-    // 时间过滤（仅在非收藏模式时应用）
-    if (!filter.showFavoritesOnly && filter.timeRange) {
-      result = filterByTimeRange(result, filter.timeRange)
-    }
-
-    // 搜索过滤
-    if (filter.searchQuery) {
-      result = searchSessions(result, filter.searchQuery)
-    }
-
-    return result
-  }, [sessionsWithFavorites, filter])
+    return result;
+  }, [search, searchQuery, showFavoritesOnly]);
 
   return {
     sessions: filteredSessions,
     allSessions: sessionsWithFavorites,
-    loading,
-    error,
-    filter,
-    setFilter,
+    loading: isLoading,
+    error: error?.message ?? null,
+    refresh: refetch,
     toggleFavorite,
-    refresh: loadSessions,
-  }
+    deleteSession: deleteMutation.mutate,
+    isDeleting: deleteMutation.isPending,
+  };
 }

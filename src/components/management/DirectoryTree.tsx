@@ -1,29 +1,29 @@
 import { useState } from "react"
 import { cn } from "@/lib/utils"
-import type { ClaudeSession } from "@/types"
-import { StatusBadge } from "@/components/running"
+import type { SessionMeta } from "@/types"
 import { ChevronRight, ChevronDown, Folder, Star } from "lucide-react"
 
 interface TreeNode {
   path: string
   name: string
-  sessions: ClaudeSession[]
+  sessions: SessionMeta[]
   children: TreeNode[]
 }
 
 interface DirectoryTreeProps {
-  sessions: ClaudeSession[]
+  sessions: SessionMeta[]
   selectedSessionId: string | null
-  onSelectSession: (session: ClaudeSession) => void
+  onSelectSession: (session: SessionMeta) => void
   onToggleFavorite: (sessionId: string) => void
 }
 
 // 构建树结构
-function buildTree(sessions: ClaudeSession[]): TreeNode[] {
+function buildTree(sessions: SessionMeta[]): TreeNode[] {
   const rootMap = new Map<string, TreeNode>()
 
   for (const session of sessions) {
-    const pathParts = session.workingDirectory.split(/[/\\]/).filter(Boolean)
+    const path = session.projectDir || ""
+    const pathParts = path.split(/[/\\]/).filter(Boolean)
     const rootPath = pathParts[0] || 'root'
 
     if (!rootMap.has(rootPath)) {
@@ -68,7 +68,7 @@ interface TreeNodeItemProps {
   expanded: boolean
   onToggleExpand: () => void
   selectedSessionId: string | null
-  onSelectSession: (session: ClaudeSession) => void
+  onSelectSession: (session: SessionMeta) => void
   onToggleFavorite: (sessionId: string) => void
 }
 
@@ -109,40 +109,41 @@ function TreeNodeItem({
       )}
 
       {/* 展开的 session */}
-      {expanded && node.sessions.map((session) => (
-        <div
-          key={session.id}
-          onClick={() => onSelectSession(session)}
-          className={cn(
-            "flex items-center gap-2 py-1.5 px-2 cursor-pointer rounded",
-            "ml-4",
-            selectedSessionId === session.id
-              ? "bg-blue-100"
-              : "hover:bg-gray-50",
-            (session.status === "idle" || session.status === "waiting") && "bg-amber-50"
-          )}
-          style={{ marginLeft: (level + 1) * 16 }}
-        >
-          <StatusBadge status={session.status} className="scale-75" />
-          <span className="text-sm truncate">{session.name}</span>
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onToggleFavorite(session.id)
-            }}
-            className="ml-auto p-0.5"
+      {expanded && node.sessions.map((session) => {
+        const title = session.title || session.projectDir?.split(/[\\/]/).pop() || session.sessionId
+        return (
+          <div
+            key={session.sessionId}
+            onClick={() => onSelectSession(session)}
+            className={cn(
+              "flex items-center gap-2 py-1.5 px-2 cursor-pointer rounded",
+              "ml-4",
+              selectedSessionId === session.sessionId
+                ? "bg-blue-100"
+                : "hover:bg-gray-50"
+            )}
+            style={{ marginLeft: (level + 1) * 16 }}
           >
-            <Star
-              className={cn(
-                "w-3.5 h-3.5",
-                session.isFavorite
-                  ? "fill-amber-400 text-amber-400"
-                  : "text-gray-300"
-              )}
-            />
-          </button>
-        </div>
-      ))}
+            <span className="text-sm truncate">{title}</span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onToggleFavorite(session.sessionId)
+              }}
+              className="ml-auto p-0.5"
+            >
+              <Star
+                className={cn(
+                  "w-3.5 h-3.5",
+                  session.isFavorite
+                    ? "fill-amber-400 text-amber-400"
+                    : "text-gray-300"
+                )}
+              />
+            </button>
+          </div>
+        )
+      })}
 
       {/* 展开的子目录 */}
       {expanded && node.children.map((child) => (

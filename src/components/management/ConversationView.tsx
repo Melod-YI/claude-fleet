@@ -26,19 +26,19 @@ export function ConversationView({ messages, loading }: ConversationViewProps) {
 
   return (
     <ScrollArea className="h-full">
-      <div className="flex flex-col gap-4 p-4">
+      <div className="flex flex-col gap-4 p-4 min-w-0">
         {messages.map((message) => (
           <div
             key={message.id}
             className={cn(
-              "flex gap-3",
+              "flex gap-3 min-w-0",
               message.role === "user" ? "flex-row" : "flex-row"
             )}
           >
             {/* 头像 */}
             <div
               className={cn(
-                "w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-medium",
+                "w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-medium shrink-0",
                 message.role === "user" ? "bg-violet-600" : "bg-green-600"
               )}
             >
@@ -46,16 +46,16 @@ export function ConversationView({ messages, loading }: ConversationViewProps) {
             </div>
 
             {/* 消息内容 */}
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <div
                 className={cn(
-                  "rounded-lg p-3",
+                  "rounded-lg p-3 min-w-0",
                   message.role === "user"
                     ? "bg-gray-100"
                     : "bg-green-50"
                 )}
               >
-                <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                <p className="text-sm whitespace-pre-wrap break-words overflow-wrap-anywhere">{message.content}</p>
               </div>
               <span className="text-xs text-gray-500 mt-1">
                 {new Date(message.timestamp).toLocaleString("zh-CN")}

@@ -1,134 +1,53 @@
-import { useState, useMemo } from "react"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Button } from "@/components/ui/button"
-import { SearchBar } from "./SearchBar"
-import { Toggle } from "@/components/common"
-import { TimeRangeSelect } from "./TimeRangeSelect"
 import { SessionListItem } from "./SessionListItem"
-import { DirectoryTree } from "./DirectoryTree"
-import { useSessions } from "@/hooks"
-import { Plus, List, FolderTree } from "lucide-react"
-import type { ClaudeSession } from "@/types"
+import { RefreshCw } from "lucide-react"
+import type { SessionMeta } from "@/types"
 
 interface SessionListProps {
+  sessions: SessionMeta[]
   selectedSessionId: string | null
-  onSelectSession: (session: ClaudeSession) => void
-  onNewSession: () => void
+  onSelectSession: (session: SessionMeta) => void
+  onToggleFavorite: (sessionId: string) => void
+  loading?: boolean
 }
 
-export function SessionList({ selectedSessionId, onSelectSession, onNewSession }: SessionListProps) {
-  const { sessions, filter, setFilter, toggleFavorite } = useSessions()
-  const [searchQuery, setSearchQuery] = useState("")
-  const [viewMode, setViewMode] = useState<'list' | 'tree'>('list')
-
-  // 应用搜索过滤
-  const filteredSessions = useMemo(() => {
-    if (!searchQuery) return sessions
-    return sessions.filter((s) =>
-      s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.workingDirectory.toLowerCase().includes(searchQuery.toLowerCase())
-    )
-  }, [sessions, searchQuery])
-
-  const handleToggleFavoritesOnly = (checked: boolean) => {
-    setFilter({ showFavoritesOnly: checked })
-  }
-
-  const handleTimeRangeChange = (value: '3d' | '7d' | '30d' | 'all' | undefined) => {
-    setFilter({ timeRange: value })
-  }
-
+export function SessionList({
+  sessions,
+  selectedSessionId,
+  onSelectSession,
+  onToggleFavorite,
+  loading,
+}: SessionListProps) {
   return (
-    <div className="flex flex-col h-full bg-gray-50 border-r">
-      {/* 头部 */}
-      <div className="p-3 border-b bg-white">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-sm">Session 列表</span>
-            <span className="text-xs text-gray-500">({sessions.length})</span>
-          </div>
-          <Button
-            variant="default"
-            size="sm"
-            onClick={onNewSession}
-            className="h-7 px-2 bg-violet-600 hover:bg-violet-700"
-          >
-            <Plus className="w-4 h-4" />
-          </Button>
+    <ScrollArea className="flex-1 h-full">
+      <div className="p-3 pr-2 min-w-0">
+        {/* 数量统计 */}
+        <div className="text-xs text-gray-500 mb-3 px-1">
+          {sessions.length} 个 session
         </div>
 
-        {/* 搜索和过滤 */}
-        <div className="flex items-center gap-2">
-          <SearchBar
-            value={searchQuery}
-            onChange={setSearchQuery}
-            placeholder="搜索名称、路径、对话内容..."
-          />
-          <Toggle
-            checked={filter.showFavoritesOnly}
-            onChange={handleToggleFavoritesOnly}
-            label="仅收藏"
-          />
-        </div>
-
-        {/* 时间筛选（仅在显示全部时出现） */}
-        {!filter.showFavoritesOnly && (
-          <div className="mt-2">
-            <TimeRangeSelect
-              value={filter.timeRange}
-              onChange={handleTimeRangeChange}
-            />
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <RefreshCw className="w-5 h-5 animate-spin text-gray-400" />
           </div>
-        )}
-      </div>
-
-      {/* 视图切换 */}
-      <div className="flex items-center gap-1 p-2 border-b bg-gray-100">
-        <Button
-          variant={viewMode === 'list' ? 'default' : 'ghost'}
-          size="sm"
-          onClick={() => setViewMode('list')}
-          className="h-7 px-2"
-        >
-          <List className="w-4 h-4" />
-        </Button>
-        <Button
-          variant={viewMode === 'tree' ? 'default' : 'ghost'}
-          size="sm"
-          onClick={() => setViewMode('tree')}
-          className="h-7 px-2"
-        >
-          <FolderTree className="w-4 h-4" />
-        </Button>
-      </div>
-
-      {/* Session 列表 */}
-      <ScrollArea className="flex-1 p-2">
-        {filteredSessions.length === 0 ? (
-          <div className="text-center text-gray-500 py-8 text-sm">
-            {searchQuery ? "没有匹配的 session" : "没有 session"}
+        ) : sessions.length === 0 ? (
+          <div className="text-center text-gray-500 py-12 text-sm">
+            没有 session
           </div>
-        ) : viewMode === 'list' ? (
-          <div className="flex flex-col gap-1">
-            {filteredSessions.map((session) => (
+        ) : (
+          <div className="flex flex-col gap-2">
+            {sessions.map((session) => (
               <SessionListItem
-                key={session.id}
+                key={session.sessionId}
                 session={session}
-                selected={selectedSessionId === session.id}
+                selected={selectedSessionId === session.sessionId}
                 onClick={() => onSelectSession(session)}
-                onToggleFavorite={() => toggleFavorite(session.id)}
+                onToggleFavorite={() => onToggleFavorite(session.sessionId)}
               />
             ))}
           </div>
-        ) : (
-          <DirectoryTree
-            sessions={filteredSessions}
-            selectedSessionId={selectedSessionId}
-            onSelectSession={onSelectSession}
-            onToggleFavorite={toggleFavorite}
-          />
         )}
-      </ScrollArea>
-    </div>
+      </div>
+    </ScrollArea>
   )
 }

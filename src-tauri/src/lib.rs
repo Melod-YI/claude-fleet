@@ -2,7 +2,6 @@ mod utils;
 mod commands;
 
 use commands::session::{
-    list_sessions,
     init_running,
     list_running,
     start_polling_cmd,
@@ -16,6 +15,11 @@ use commands::session::{
     stop_hooks,
     send_notification,
     delete_session_cmd,
+};
+use commands::session_commands::{
+    list_sessions_optimized,
+    get_session_messages_optimized,
+    delete_session_optimized,
 };
 use commands::terminal::{jump_to_terminal, jump_to_terminal_by_pid, smart_jump_to_terminal, resume_in_terminal};
 use tracing::{info, error};
@@ -75,11 +79,16 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(setup)
         .invoke_handler(tauri::generate_handler![
-            list_sessions,
+            // New optimized session commands for management tab
+            list_sessions_optimized,
+            get_session_messages_optimized,
+            delete_session_optimized,
+            // Running session commands (keep for Running Tab)
             init_running,
             list_running,
             start_polling_cmd,
             stop_polling_cmd,
+            // Legacy commands (keep for compatibility)
             get_conversation,
             refresh_sessions,
             start_new_session,
@@ -88,11 +97,12 @@ pub fn run() {
             start_hooks,
             stop_hooks,
             send_notification,
+            delete_session_cmd,
+            // Terminal commands
             jump_to_terminal,
             jump_to_terminal_by_pid,
             smart_jump_to_terminal,
-            resume_in_terminal,
-            delete_session_cmd
+            resume_in_terminal
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

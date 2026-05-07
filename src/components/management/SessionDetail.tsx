@@ -1,49 +1,36 @@
 import { useState } from "react"
 import { cn } from "@/lib/utils"
-import type { ClaudeSession, Conversation } from "@/types"
+import type { SessionMeta, SessionMessage } from "@/types"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { StatusBadge } from "@/components/running"
 import { ConversationView } from "./ConversationView"
 import { useFavoriteStore } from "@/stores"
 import { resumeInTerminal } from "@/services"
 import { ConfirmDialog } from "@/components/dialogs"
-import { ArrowLeft, Star, Trash2, Copy, Check, RefreshCw } from "lucide-react"
+import { Star, Trash2, Copy, Check, RefreshCw, Play, Clock, FolderOpen } from "lucide-react"
 import { formatRelativeTime } from "@/utils"
 
 interface SessionDetailProps {
-  session: ClaudeSession
-  conversation: Conversation | null
-  conversationLoading: boolean
-  onBack?: () => void
+  session: SessionMeta
+  messages: SessionMessage[]
+  messagesLoading: boolean
   onDelete: (sessionId: string) => void
   onRefresh: () => void
 }
 
 export function SessionDetail({
   session,
-  conversation,
-  conversationLoading,
-  onBack,
+  messages,
+  messagesLoading,
   onDelete,
   onRefresh,
 }: SessionDetailProps) {
-  const [editingName, setEditingName] = useState(session.name)
-  const [savingName, setSavingName] = useState(false)
+  const title = session.title || session.projectDir?.split(/[\\/]/).pop() || session.sessionId
   const [copied, setCopied] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const { toggleFavorite } = useFavoriteStore()
 
-  const handleSaveName = async () => {
-    if (editingName === session.name) return
-    setSavingName(true)
-    // Phase 6 实现：保存名称到后端
-    console.log("Save name:", editingName)
-    setSavingName(false)
-  }
-
   const handleCopyCommand = async () => {
-    const command = `claude --resume ${session.id}`
+    const command = session.resumeCommand || `claude --resume ${session.sessionId}`
     await navigator.clipboard.writeText(command)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
@@ -51,7 +38,17 @@ export function SessionDetail({
 
   const handleResume = async () => {
     try {
-      await resumeInTerminal(session)
+      const legacySession = {
+        id: session.sessionId,
+        name: title,
+        workingDirectory: session.projectDir || "",
+        status: 'idle' as const,
+        createdAt: session.createdAt ? new Date(session.createdAt).toISOString() : "",
+        lastActivityAt: session.lastActiveAt ? new Date(session.lastActiveAt).toISOString() : "",
+        conversationCount: messages.length,
+        isFavorite: session.isFavorite || false,
+      }
+      await resumeInTerminal(legacySession)
     } catch (e) {
       alert(String(e))
     }
@@ -65,49 +62,47 @@ export function SessionDetail({
     setShowDeleteConfirm(true)
   }
 
-  const handleConfirmDelete = () => {
-    onDelete(session.id)
-  }
+  const conversationMessages = messages.map((msg) => ({
+    id: `${msg.role}-${msg.ts || 0}`,
+    role: msg.role as 'user' | 'assistant' | 'tool',
+    content: msg.content,
+    timestamp: msg.ts ? new Date(msg.ts).toISOString() : "",
+  }))
 
   return (
-    <>
-      <div className="flex flex-col h-full bg-white">
-        {/* 头部操作栏 */}
-        <div className="flex items-center justify-between px-4 py-3 border-b">
-          {onBack && (
-            <Button variant="ghost" size="sm" onClick={onBack}>
-              <ArrowLeft className="w-4 h-4" />
-            </Button>
-          )}
-          <div className="flex items-center gap-2 ml-auto">
+    <div className="flex flex-col h-full min-w-0 overflow-hidden">
+      {/* 头部信息栏 */}
+      <div className="px-4 py-3 border-b bg-gray-50/50">
+        {/* 标题行 */}
+        <div className="flex items-center gap-3 mb-2 min-w-0">
+          <h2 className="text-lg font-semibold text-gray-900 truncate min-w-0">{title}</h2>
+          <div className="flex items-center gap-1.5 shrink-0 ml-auto">
             <Button
               variant="default"
               size="sm"
               onClick={handleResume}
-              className="bg-violet-600 hover:bg-violet-700"
+              className="h-8 bg-violet-600 hover:bg-violet-700 shrink-0"
             >
-              恢复 Session
+              <Play className="w-4 h-4 mr-1" />
+              恢复
             </Button>
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => toggleFavorite(session.id)}
+              onClick={() => toggleFavorite(session.sessionId)}
+              className="h-8 shrink-0"
             >
-              <Star
-                className={cn(
-                  "w-4 h-4",
-                  session.isFavorite
-                    ? "fill-amber-400 text-amber-400"
-                    : "text-gray-400"
-                )}
-              />
+              <Star className={cn(
+                "w-4 h-4",
+                session.isFavorite ? "fill-amber-400 text-amber-400" : "text-gray-400"
+              )} />
             </Button>
             {!session.isFavorite && (
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={handleDelete}
-                className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                className="h-8 text-red-500 hover:text-red-600 hover:bg-red-50 shrink-0"
               >
                 <Trash2 className="w-4 h-4" />
               </Button>
@@ -115,107 +110,82 @@ export function SessionDetail({
           </div>
         </div>
 
-        {/* 基本信息 */}
-        <div className="px-4 py-3 border-b bg-gray-50">
-          {/* 名称编辑 */}
-          <div className="flex items-center gap-2 mb-2">
-            <Input
-              value={editingName}
-              onChange={(e) => setEditingName(e.target.value)}
-              className="font-semibold text-lg"
-            />
-            {editingName !== session.name && (
-              <Button
-                variant="default"
-                size="sm"
-                onClick={handleSaveName}
-                disabled={savingName}
-                className="bg-violet-600"
-              >
-                {savingName ? "保存中..." : "保存"}
-              </Button>
-            )}
-          </div>
-
+        {/* 元信息 */}
+        <div className="flex items-center gap-3 text-sm text-gray-500 min-w-0 flex-wrap">
           {/* 路径 */}
-          <div className="flex items-center gap-2 text-sm text-gray-600 mb-1">
-            <span>{session.workingDirectory}</span>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigator.clipboard.writeText(session.workingDirectory)}
-              className="p-1 h-auto"
-            >
-              <Copy className="w-3 h-3" />
-            </Button>
-          </div>
-
-          {/* 元数据 */}
-          <div className="text-xs text-gray-500">
-            创建: {new Date(session.createdAt).toLocaleString("zh-CN")} ·
-            上次活动: {formatRelativeTime(session.lastActivityAt)} ·
-            {session.conversationCount} 轮对话
-          </div>
-
-          {/* 状态 */}
-          <div className="flex items-center gap-2 mt-2">
-            <StatusBadge status={session.status} />
-          </div>
-        </div>
-
-        {/* 恢复命令 */}
-        <div className="px-4 py-2 border-b">
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-600">恢复命令：</span>
-            <div className="flex-1 flex items-center gap-2 bg-gray-100 rounded-md px-3 py-1.5">
-              <code className="text-sm text-gray-800 flex-1">
-                claude --resume {session.id}
-              </code>
+          {session.projectDir && (
+            <div className="flex items-center gap-1.5 min-w-0 max-w-[180px] shrink">
+              <FolderOpen className="w-4 h-4 shrink-0" />
+              <span className="truncate">{session.projectDir}</span>
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={handleCopyCommand}
-                className="p-1 h-auto"
+                onClick={() => navigator.clipboard.writeText(session.projectDir || "")}
+                className="p-0.5 h-auto shrink-0"
               >
-                {copied ? (
-                  <Check className="w-4 h-4 text-green-500" />
-                ) : (
-                  <Copy className="w-4 h-4" />
-                )}
+                <Copy className="w-3 h-3" />
               </Button>
             </div>
+          )}
+
+          {/* 时间 */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Clock className="w-4 h-4" />
+            <span className="whitespace-nowrap">{session.lastActiveAt ? formatRelativeTime(new Date(session.lastActiveAt).toISOString()) : "未知"}</span>
           </div>
+
+          {/* 消息数 */}
+          <span className="shrink-0 whitespace-nowrap">{messages.length} 条消息</span>
         </div>
 
-        {/* 对话历史 */}
-        <div className="flex-1 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-2 border-b">
-            <h3 className="text-sm font-medium text-violet-600">历史对话</h3>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onRefresh}
-              className="p-1 h-auto"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </Button>
-          </div>
-          <ConversationView
-            messages={conversation?.messages || []}
-            loading={conversationLoading}
-          />
+        {/* 恢复命令 */}
+        <div className="mt-3 flex items-center gap-2 min-w-0">
+          <code className="flex-1 min-w-0 bg-gray-100 rounded px-3 py-1.5 text-sm text-gray-600 font-mono overflow-hidden text-ellipsis whitespace-nowrap">
+            {session.resumeCommand || `claude --resume ${session.sessionId}`}
+          </code>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleCopyCommand}
+            className="h-8 shrink-0"
+          >
+            {copied ? (
+              <Check className="w-4 h-4 text-green-500" />
+            ) : (
+              <Copy className="w-4 h-4" />
+            )}
+          </Button>
         </div>
+      </div>
+
+      {/* 对话历史 */}
+      <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2 border-b bg-white min-w-0">
+          <h3 className="text-sm font-medium text-gray-700 truncate">对话记录</h3>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onRefresh}
+            className="h-7"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </Button>
+        </div>
+        <ConversationView
+          messages={conversationMessages}
+          loading={messagesLoading}
+        />
       </div>
 
       <ConfirmDialog
         open={showDeleteConfirm}
         onClose={() => setShowDeleteConfirm(false)}
-        onConfirm={handleConfirmDelete}
+        onConfirm={() => onDelete(session.sessionId)}
         title="删除 Session"
-        description={`确定要删除 "${session.name}" 吗？此操作不可撤销。`}
+        description={`确定要删除 "${title}" 吗？此操作不可撤销。`}
         confirmText="删除"
         variant="destructive"
       />
-    </>
+    </div>
   )
 }

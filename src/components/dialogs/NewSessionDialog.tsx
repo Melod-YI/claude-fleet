@@ -12,19 +12,20 @@ import { cn } from "@/lib/utils"
 import { FolderOpen, Loader2 } from "lucide-react"
 import { open as openDialog } from "@tauri-apps/plugin-dialog"
 import { invoke } from "@tauri-apps/api/core"
+import type { FavoritePath } from "@/types"
 
 interface NewSessionDialogProps {
   open: boolean
   onClose: () => void
-  favoritePaths: string[]
-  onAddFavoritePath: (path: string) => void
+  favoritePaths: FavoritePath[]
+  onRecordPathUsage: (path: string) => void
 }
 
 export function NewSessionDialog({
   open,
   onClose,
   favoritePaths,
-  onAddFavoritePath,
+  onRecordPathUsage,
 }: NewSessionDialogProps) {
   const [workingDirectory, setWorkingDirectory] = useState("")
   const [sessionName, setSessionName] = useState("")
@@ -67,10 +68,8 @@ export function NewSessionDialog({
         name: sessionName || undefined,
       })
 
-      // 新建的 session 默认加入收藏
-      // 需要在后端返回 session ID 后添加
-      // 暂时先关闭弹窗
-      onAddFavoritePath(workingDirectory)
+      // 记录路径使用（用于排序）
+      onRecordPathUsage(workingDirectory)
       onClose()
 
       // 刷新 session 列表
@@ -128,18 +127,18 @@ export function NewSessionDialog({
             <div className="flex flex-col gap-2">
               <label className="text-sm font-medium text-gray-700">常用路径</label>
               <div className="flex flex-wrap gap-2">
-                {favoritePaths.map((path) => (
+                {favoritePaths.map((fp) => (
                   <Button
-                    key={path}
+                    key={fp.path}
                     variant="outline"
                     size="sm"
-                    onClick={() => handleSelectFavoritePath(path)}
+                    onClick={() => handleSelectFavoritePath(fp.path)}
                     className={cn(
                       "text-xs",
-                      workingDirectory === path && "border-violet-500 bg-violet-50"
+                      workingDirectory === fp.path && "border-violet-500 bg-violet-50"
                     )}
                   >
-                    {path}
+                    {fp.path}
                   </Button>
                 ))}
               </div>

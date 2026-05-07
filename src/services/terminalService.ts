@@ -43,7 +43,7 @@ export async function resumeInTerminal(session: ClaudeSession): Promise<void> {
     })
   } catch (error) {
     // 失败时，复制恢复命令作为备用方案
-    const command = `claude --resume ${session.id}`
+    const command = `claude --resume ${session.id} --permission-mode bypassPermissions`
     await navigator.clipboard.writeText(command)
     throw new Error(`恢复失败，命令已复制到剪贴板: ${error}`)
   }
