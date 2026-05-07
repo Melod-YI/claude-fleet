@@ -24,8 +24,8 @@ export function RunningTab() {
     return sessions
   }, [sessions, searchQuery])
 
-  // 统计
-  const waitingCount = sessions.filter((s) => s.status === "waiting_input").length
+  // 统计：idle 和 waiting 都是等待输入状态
+  const waitingCount = sessions.filter((s) => s.status === "idle" || s.status === "waiting").length
 
   const handleRefresh = async () => {
     setRefreshing(true)

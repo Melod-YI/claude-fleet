@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, UnlistenFn } from '@tauri-apps/api/event'
 
-export type SessionStatus = 'running' | 'waiting_input'
+// Session 运行状态（对应 Claude JSON 文件中的三种状态）
+export type SessionStatus = 'busy' | 'idle' | 'waiting'
 
 export interface RunningSession {
   session_id: string

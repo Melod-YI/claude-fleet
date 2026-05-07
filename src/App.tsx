@@ -12,15 +12,15 @@ function App() {
   // 使用通知 hook
   useNotification()
 
-  // 启动钩子服务
+  // 启动 sessions 目录监听服务
   useEffect(() => {
-    invoke('start_hooks').catch((e) => {
-      console.error('启动钩子服务失败:', e)
+    invoke('start_sessions_watcher').catch((e) => {
+      console.error('启动 sessions 监听服务失败:', e)
     })
 
     return () => {
-      invoke('stop_hooks').catch((e) => {
-        console.error('停止钩子服务失败:', e)
+      invoke('stop_sessions_watcher').catch((e) => {
+        console.error('停止 sessions 监听服务失败:', e)
       })
     }
   }, [])

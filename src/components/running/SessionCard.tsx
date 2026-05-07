@@ -14,7 +14,8 @@ interface SessionCardProps {
 }
 
 export function SessionCard({ session, onJumpToTerminal, onToggleFavorite }: SessionCardProps) {
-  const isWaitingInput = session.status === "waiting_input"
+  // idle 和 waiting 都是等待输入状态
+  const isWaitingInput = session.status === "idle" || session.status === "waiting"
 
   const handleJump = async () => {
     try {
@@ -54,16 +55,14 @@ export function SessionCard({ session, onJumpToTerminal, onToggleFavorite }: Ses
       </div>
 
       <div className="flex items-center gap-2 ml-4">
-        {session.status !== "completed" && (
-          <Button
-            variant={isWaitingInput ? "default" : "secondary"}
-            size="sm"
-            onClick={handleJump}
-            className={isWaitingInput ? "bg-violet-600 hover:bg-violet-700" : ""}
-          >
-            跳转到终端
-          </Button>
-        )}
+        <Button
+          variant={isWaitingInput ? "default" : "secondary"}
+          size="sm"
+          onClick={handleJump}
+          className={isWaitingInput ? "bg-violet-600 hover:bg-violet-700" : ""}
+        >
+          跳转到终端
+        </Button>
         <Button
           variant="ghost"
           size="sm"
@@ -90,7 +89,8 @@ interface SessionCardNewProps {
 }
 
 export function SessionCardNew({ session, onJumpToTerminal }: SessionCardNewProps) {
-  const isWaitingInput = session.status === "waiting_input"
+  // idle 和 waiting 都是等待输入状态
+  const isWaitingInput = session.status === "idle" || session.status === "waiting"
 
   return (
     <div

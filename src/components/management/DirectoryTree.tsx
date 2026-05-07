@@ -119,7 +119,7 @@ function TreeNodeItem({
             selectedSessionId === session.id
               ? "bg-blue-100"
               : "hover:bg-gray-50",
-            session.status === "waiting_input" && "bg-amber-50"
+            (session.status === "idle" || session.status === "waiting") && "bg-amber-50"
           )}
           style={{ marginLeft: (level + 1) * 16 }}
         >

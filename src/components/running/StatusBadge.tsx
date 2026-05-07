@@ -6,26 +6,22 @@ interface StatusBadgeProps {
   className?: string
 }
 
+// 状态显示配置：busy 显示为运行中，idle/waiting 都显示为等待输入
 const statusConfig: Record<SessionStatus, { label: string; className: string; icon: string }> = {
-  running: {
+  busy: {
     label: "运行中",
     className: "bg-green-500 text-white",
     icon: "●",
   },
-  waiting_input: {
+  idle: {
     label: "等待输入",
     className: "bg-amber-500 text-white",
     icon: "⏳",
   },
-  completed: {
-    label: "已完成",
-    className: "bg-gray-500 text-white",
-    icon: "✓",
-  },
-  idle: {
-    label: "空闲",
-    className: "bg-gray-300 text-gray-600",
-    icon: "○",
+  waiting: {
+    label: "等待输入",
+    className: "bg-amber-500 text-white",
+    icon: "⏳",
   },
 }
 

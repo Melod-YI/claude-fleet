@@ -10,9 +10,10 @@ use commands::session::{
     get_conversation,
     refresh_sessions,
     start_new_session,
+    start_sessions_watcher,
+    stop_sessions_watcher,
     start_hooks,
     stop_hooks,
-    receive_hook_event,
     send_notification,
     delete_session_cmd,
 };
@@ -32,8 +33,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     let app_handle = app.handle();
 
-    // 初始化运行中 session 列表
-    info!("[setup] 步骤1: 初始化运行中 session 列表");
+    // 初始化运行中 session 列表（扫描 sessions 目录）
+    info!("[setup] 步骤1: 初始化运行中 session 列表（扫描 sessions 目录）");
     let init_start = Instant::now();
     if let Err(e) = init_running() {
         error!("[setup] 初始化运行中 session 列表失败: {}", e);
@@ -42,17 +43,17 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         info!("[setup] 运行中 session 列表初始化成功，耗时: {}ms", elapsed.as_millis());
     }
 
-    // 启动 hook 监听
-    info!("[setup] 步骤2: 启动 hook 监听服务");
-    let hook_start = Instant::now();
-    if let Err(e) = start_hooks(app_handle.clone()) {
-        error!("[setup] 启动 hook 监听失败: {}", e);
+    // 启动 sessions 目录监听服务
+    info!("[setup] 步骤2: 启动 sessions 目录监听服务");
+    let watcher_start = Instant::now();
+    if let Err(e) = start_sessions_watcher(app_handle.clone()) {
+        error!("[setup] 启动 sessions 监听失败: {}", e);
     } else {
-        let elapsed = hook_start.elapsed();
-        info!("[setup] hook 监听服务启动成功，耗时: {}ms", elapsed.as_millis());
+        let elapsed = watcher_start.elapsed();
+        info!("[setup] sessions 监听服务启动成功，耗时: {}ms", elapsed.as_millis());
     }
 
-    // 启动定时轮询
+    // 启动定时轮询（检测意外退出）
     info!("[setup] 步骤3: 启动定时轮询服务");
     let poll_start = Instant::now();
     if let Err(e) = start_polling_cmd(app_handle.clone()) {
@@ -82,9 +83,10 @@ pub fn run() {
             get_conversation,
             refresh_sessions,
             start_new_session,
+            start_sessions_watcher,
+            stop_sessions_watcher,
             start_hooks,
             stop_hooks,
-            receive_hook_event,
             send_notification,
             jump_to_terminal,
             jump_to_terminal_by_pid,

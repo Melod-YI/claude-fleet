@@ -2,14 +2,12 @@ use crate::utils::claude_data::{
     get_all_sessions, get_session_conversation, delete_session,
     ClaudeSession, Conversation,
 };
-use crate::utils::hooks::{start_hook_receiver, stop_hook_receiver, handle_hook_event};
 use crate::utils::running_sessions::{
     init_running_sessions,
     get_running_sessions,
     start_polling,
     stop_polling,
     RunningSession,
-    HookEvent,
 };
 use tracing::{info, debug, error};
 
@@ -73,12 +71,6 @@ pub fn stop_polling_cmd() -> Result<(), String> {
     info!("[stop_polling_cmd] 完成");
     Ok(())
 }
-
-// 旧命令已废弃，使用 list_running 替代
-// #[tauri::command]
-// pub fn list_running_sessions() -> Result<Vec<ClaudeSession>, String> {
-//     get_running_sessions_list()
-// }
 
 /// 获取指定 session 的对话内容
 #[tauri::command]
@@ -185,48 +177,45 @@ pub async fn start_new_session(
     }
 }
 
-/// 启动钩子服务（文件监听方式）
+/// 启动 sessions 目录监听服务
 #[tauri::command]
-pub fn start_hooks(app: tauri::AppHandle) -> Result<(), String> {
-    info!("[start_hooks] 开始启动钩子服务");
-    let result = start_hook_receiver(app);
+pub fn start_sessions_watcher(app: tauri::AppHandle) -> Result<(), String> {
+    info!("[start_sessions_watcher] 开始启动 sessions 监听服务");
+    let result = crate::utils::sessions_watcher::start_sessions_watcher(app);
     match result {
         Ok(_) => {
-            info!("[start_hooks] 完成");
+            info!("[start_sessions_watcher] 完成");
             Ok(())
         }
         Err(e) => {
-            error!("[start_hooks] 失败: {}", e);
+            error!("[start_sessions_watcher] 失败: {}", e);
             Err(e)
         }
     }
 }
 
-/// 停止钩子服务
+/// 停止 sessions 目录监听服务
 #[tauri::command]
-pub fn stop_hooks() -> Result<(), String> {
-    info!("[stop_hooks] 开始停止钩子服务");
-    stop_hook_receiver();
-    info!("[stop_hooks] 完成");
+pub fn stop_sessions_watcher() -> Result<(), String> {
+    info!("[stop_sessions_watcher] 开始停止 sessions 监听服务");
+    crate::utils::sessions_watcher::stop_sessions_watcher();
+    info!("[stop_sessions_watcher] 完成");
     Ok(())
 }
 
-/// 接收钩子事件
+/// 兼容旧命令：启动监听服务（调用 sessions_watcher）
 #[tauri::command]
-pub fn receive_hook_event(event: HookEvent) -> Result<(), String> {
-    info!("[receive_hook_event] 开始接收钩子事件: type={}, session_id={}",
-          event.hook_event_name, event.session_id);
-    let result = handle_hook_event(event);
-    match result {
-        Ok(_) => {
-            info!("[receive_hook_event] 完成");
-            Ok(())
-        }
-        Err(e) => {
-            error!("[receive_hook_event] 失败: {}", e);
-            Err(e)
-        }
-    }
+pub fn start_hooks(app: tauri::AppHandle) -> Result<(), String> {
+    info!("[start_hooks] 兼容命令，调用 start_sessions_watcher");
+    crate::utils::sessions_watcher::start_sessions_watcher(app)
+}
+
+/// 兼容旧命令：停止监听服务（调用 sessions_watcher）
+#[tauri::command]
+pub fn stop_hooks() -> Result<(), String> {
+    info!("[stop_hooks] 兼容命令，调用 stop_sessions_watcher");
+    crate::utils::sessions_watcher::stop_sessions_watcher();
+    Ok(())
 }
 
 /// 发送桌面通知

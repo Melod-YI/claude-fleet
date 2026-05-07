@@ -1,4 +1,5 @@
-export type SessionStatus = 'running' | 'waiting_input' | 'completed' | 'idle'
+// Session 运行状态（对应 Claude JSON 文件中的三种状态）
+export type SessionStatus = 'busy' | 'idle' | 'waiting'
 
 export interface ClaudeSession {
   id: string

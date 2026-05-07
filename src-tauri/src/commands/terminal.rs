@@ -1,6 +1,6 @@
 use crate::utils::window_manager::{
     find_terminal_window,
-    find_window_by_pid,
+    find_window_by_pid_chain,
     activate_window,
     start_terminal_with_resume,
 };
@@ -33,22 +33,22 @@ pub fn jump_to_terminal(working_directory: String) -> Result<(), String> {
     }
 }
 
-/// 通过进程 ID 精确跳转到终端窗口
+/// 通过进程 ID 精确跳转到终端窗口（使用父进程链查找）
 #[tauri::command]
 pub fn jump_to_terminal_by_pid(process_id: u32) -> Result<(), String> {
     info!("[jump_to_terminal_by_pid] 开始，PID: {}", process_id);
 
     #[cfg(target_os = "windows")]
     {
-        debug!("[jump_to_terminal_by_pid] Windows 平台，查找窗口");
-        if let Some(hwnd) = find_window_by_pid(process_id) {
+        debug!("[jump_to_terminal_by_pid] Windows 平台，查找窗口（使用父进程链）");
+        if let Some(hwnd) = find_window_by_pid_chain(process_id) {
             info!("[jump_to_terminal_by_pid] 找到窗口，激活");
             activate_window(hwnd)?;
             info!("[jump_to_terminal_by_pid] 完成");
             Ok(())
         } else {
-            warn!("[jump_to_terminal_by_pid] 未找到进程 {} 对应的终端窗口", process_id);
-            Err(format!("未找到进程 {} 对应的终端窗口", process_id))
+            warn!("[jump_to_terminal_by_pid] 未找到进程 {} 或其父进程对应的终端窗口", process_id);
+            Err(format!("未找到进程 {} 或其父进程对应的终端窗口", process_id))
         }
     }
 
@@ -60,7 +60,7 @@ pub fn jump_to_terminal_by_pid(process_id: u32) -> Result<(), String> {
     }
 }
 
-/// 智能跳转：先尝试 PID，失败则尝试路径
+/// 智能跳转：通过 PID 链向上查找父进程直到找到有窗口的进程
 #[tauri::command]
 pub fn smart_jump_to_terminal(working_directory: String, process_id: Option<u32>) -> Result<(), String> {
     info!("[smart_jump_to_terminal] 开始，工作目录: {}, PID: {:?}",
@@ -68,34 +68,25 @@ pub fn smart_jump_to_terminal(working_directory: String, process_id: Option<u32>
 
     #[cfg(target_os = "windows")]
     {
-        // 先尝试 PID 精确匹配
+        // 尝试 PID 链查找（向上查找父进程直到找到有窗口的进程）
         if let Some(pid) = process_id {
             if pid > 0 {
-                info!("[smart_jump_to_terminal] 尝试 PID 精确匹配: {}", pid);
-                if let Some(hwnd) = find_window_by_pid(pid) {
-                    info!("[smart_jump_to_terminal] PID 匹配成功，激活窗口");
+                info!("[smart_jump_to_terminal] 尝试 PID 链查找: {}", pid);
+                if let Some(hwnd) = find_window_by_pid_chain(pid) {
+                    info!("[smart_jump_to_terminal] PID 链查找成功，激活窗口");
                     activate_window(hwnd)?;
-                    info!("[smart_jump_to_terminal] 完成（通过 PID）");
+                    info!("[smart_jump_to_terminal] 完成（通过 PID 链）");
                     return Ok(());
                 }
-                warn!("[smart_jump_to_terminal] PID {} 匹配失败，尝试路径匹配", pid);
+                warn!("[smart_jump_to_terminal] PID {} 链查找失败，未找到窗口", pid);
+                return Err(format!("未找到进程 {} 或其父进程对应的终端窗口", pid));
             } else {
-                debug!("[smart_jump_to_terminal] PID 为 0，跳过 PID 匹配");
+                warn!("[smart_jump_to_terminal] PID 为 0，无法查找");
+                return Err("无效的进程 ID".to_string());
             }
         } else {
-            debug!("[smart_jump_to_terminal] 无 PID，跳过 PID 匹配");
-        }
-
-        // PID 匹配失败，尝试路径匹配
-        info!("[smart_jump_to_terminal] 尝试路径匹配: {}", working_directory);
-        if let Some(hwnd) = find_terminal_window(&working_directory) {
-            info!("[smart_jump_to_terminal] 路径匹配成功，激活窗口");
-            activate_window(hwnd)?;
-            info!("[smart_jump_to_terminal] 完成（通过路径）");
-            Ok(())
-        } else {
-            warn!("[smart_jump_to_terminal] 未找到对应的终端窗口");
-            Err("未找到对应的终端窗口".to_string())
+            warn!("[smart_jump_to_terminal] 无 PID 信息");
+            return Err("缺少进程 ID 信息".to_string());
         }
     }
 
