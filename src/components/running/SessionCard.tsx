@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils"
 import type { ClaudeSession } from "@/types"
 import { StatusBadge } from "./StatusBadge"
 import { Button } from "@/components/ui/button"
-import { formatRelativeTime } from "@/utils"
+import { formatRelativeTime, formatRelativeTimeFromTimestamp } from "@/utils"
 import { jumpToTerminal } from "@/services"
 import { Star } from "lucide-react"
 import type { RunningSession } from "@/hooks/useRunningSessions"
@@ -109,7 +109,7 @@ export function SessionCardNew({ session, onJumpToTerminal }: SessionCardNewProp
         </div>
         <p className="text-sm text-gray-600 truncate">{session.cwd}</p>
         <p className="text-xs text-gray-500 mt-1">
-          PID: {session.pid}
+          上次活动: {formatRelativeTimeFromTimestamp(session.updated_at)}
         </p>
       </div>
 

@@ -45,3 +45,24 @@ export function formatRelativeTime(dateString: string): string {
 
   return date.toLocaleDateString('zh-CN')
 }
+
+/**
+ * 格式化相对时间（从 Unix timestamp）
+ */
+export function formatRelativeTimeFromTimestamp(timestamp: number): string {
+  const date = new Date(timestamp * 1000) // Unix timestamp 是秒，需要乘 1000
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+
+  const minutes = Math.floor(diffMs / (60 * 1000))
+  const hours = Math.floor(diffMs / (60 * 60 * 1000))
+  const days = Math.floor(diffMs / (24 * 60 * 60 * 1000))
+
+  if (minutes < 1) return '刚刚'
+  if (minutes < 60) return `${minutes} 分钟前`
+  if (hours < 24) return `${hours} 小时前`
+  if (days < 7) return `${days} 天前`
+  if (days < 30) return `${Math.floor(days / 7)} 周前`
+
+  return date.toLocaleDateString('zh-CN')
+}

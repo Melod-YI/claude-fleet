@@ -6,12 +6,18 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { SessionCardNew } from "./SessionCard"
 import { useRunningSessions, RunningSession } from "@/hooks/useRunningSessions"
 import { jumpToTerminal } from "@/services"
-import { RefreshCw } from "lucide-react"
+import { RefreshCw, Plus } from "lucide-react"
+import { NewSessionDialog } from "@/components/dialogs/NewSessionDialog"
 
 export function RunningTab() {
   const { sessions, loading, error, refresh } = useRunningSessions()
   const [refreshing, setRefreshing] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
+  const [newSessionOpen, setNewSessionOpen] = useState(false)
+  const [favoritePaths, setFavoritePaths] = useState<string[]>([
+    "C:\\workspace",
+    "D:\\projects",
+  ])
 
   // 搜索过滤
   const filteredSessions = useMemo(() => {
@@ -47,6 +53,19 @@ export function RunningTab() {
     }
   }
 
+  const handleAddFavoritePath = (path: string) => {
+    setFavoritePaths((prev) => {
+      if (prev.includes(path)) return prev
+      return [...prev, path]
+    })
+  }
+
+  const handleNewSessionClose = () => {
+    setNewSessionOpen(false)
+    // 刷新列表以显示新启动的 session
+    refresh()
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* 搜索栏 */}
@@ -60,8 +79,17 @@ export function RunningTab() {
         <Button
           variant="outline"
           size="icon"
+          onClick={() => setNewSessionOpen(true)}
+          title="新建 Session"
+        >
+          <Plus className="w-4 h-4" />
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
           onClick={handleRefresh}
           disabled={refreshing}
+          title="刷新"
         >
           <RefreshCw className={cn("w-4 h-4", refreshing && "animate-spin")} />
         </Button>
@@ -107,6 +135,14 @@ export function RunningTab() {
           </div>
         )}
       </ScrollArea>
+
+      {/* 新建 Session 弹窗 */}
+      <NewSessionDialog
+        open={newSessionOpen}
+        onClose={handleNewSessionClose}
+        favoritePaths={favoritePaths}
+        onAddFavoritePath={handleAddFavoritePath}
+      />
     </div>
   )
 }

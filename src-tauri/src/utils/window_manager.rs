@@ -407,13 +407,14 @@ pub fn start_terminal_with_resume(working_directory: &str, session_id: &str) -> 
     #[cfg(target_os = "windows")]
     {
         let args = [
-            "-d", working_directory,
-            "claude",
+            "start",
+            "--cwd", working_directory,
+            "-e", "claude",
             "--resume", session_id,
         ];
-        info!("[start_terminal_with_resume] 命令: wt {}", args.join(" "));
+        info!("[start_terminal_with_resume] 命令: wezterm {}", args.join(" "));
 
-        Command::new("wt")
+        Command::new("wezterm")
             .args(args)
             .spawn()
             .map_err(|e| {

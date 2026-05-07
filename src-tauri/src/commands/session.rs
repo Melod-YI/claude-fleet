@@ -137,8 +137,8 @@ pub async fn start_new_session(
     use tauri_plugin_shell::ShellExt;
 
     let terminal_cmd = if cfg!(target_os = "windows") {
-        debug!("[start_new_session] Windows 平台，使用 wt");
-        format!("wt -d \"{}\" claude", working_directory)
+        debug!("[start_new_session] Windows 平台，使用 wezterm");
+        format!("wezterm start --cwd \"{}\" -e claude", working_directory)
     } else if cfg!(target_os = "macos") {
         debug!("[start_new_session] macOS 平台，使用 open");
         format!("open -a Terminal \"{}\"", working_directory)
