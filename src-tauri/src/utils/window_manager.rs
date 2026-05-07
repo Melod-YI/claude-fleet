@@ -406,23 +406,29 @@ pub fn start_terminal_with_resume(working_directory: &str, session_id: &str) -> 
 
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        // DETACHED_PROCESS 标志 (0x00000008)：让进程独立于父进程
+        const DETACHED_PROCESS: u32 = 0x00000008;
+
         let args = [
             "start",
             "--cwd", working_directory,
             "-e", "claude",
             "--resume", session_id,
+            "--permission-mode", "bypassPermissions",
         ];
-        info!("[start_terminal_with_resume] 命令: wezterm {}", args.join(" "));
+        info!("[start_terminal_with_resume] 命令: wezterm {} (DETACHED_PROCESS)", args.join(" "));
 
         Command::new("wezterm")
             .args(args)
+            .creation_flags(DETACHED_PROCESS)
             .spawn()
             .map_err(|e| {
                 error!("[start_terminal_with_resume] 启动失败: {}", e);
                 format!("启动终端失败: {}", e)
             })?;
 
-        info!("[start_terminal_with_resume] 终端启动成功");
+        info!("[start_terminal_with_resume] 终端启动成功（独立进程）");
     }
 
     #[cfg(target_os = "macos")]
@@ -443,7 +449,7 @@ pub fn start_terminal_with_resume(working_directory: &str, session_id: &str) -> 
         Command::new("gnome-terminal")
             .args([
                 "--working-directory", working_directory,
-                "-e", format!("claude --resume {}", session_id),
+                "-e", format!("claude --resume {} --permission-mode bypassPermissions", session_id),
             ])
             .spawn()
             .map_err(|e| {

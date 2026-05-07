@@ -126,55 +126,64 @@ pub fn delete_session_cmd(session_id: String) -> Result<(), String> {
 /// 启动新的 Claude Code session
 #[tauri::command]
 pub async fn start_new_session(
-    app: tauri::AppHandle,
     working_directory: String,
     name: Option<String>,
 ) -> Result<String, String> {
+    use std::process::Command;
     info!("[start_new_session] 开始启动新 session，工作目录: {}, 名称: {:?}",
           working_directory, name);
 
-    // 使用 shell plugin 启动 Windows Terminal
-    use tauri_plugin_shell::ShellExt;
-
-    let terminal_cmd = if cfg!(target_os = "windows") {
-        debug!("[start_new_session] Windows 平台，使用 wezterm");
-        format!("wezterm start --cwd \"{}\" -e claude", working_directory)
-    } else if cfg!(target_os = "macos") {
-        debug!("[start_new_session] macOS 平台，使用 open");
-        format!("open -a Terminal \"{}\"", working_directory)
-    } else {
-        debug!("[start_new_session] Linux 平台，使用 gnome-terminal");
-        format!("gnome-terminal --working-directory=\"{}\" -e claude", working_directory)
-    };
-
-    info!("[start_new_session] 终端命令: {}", terminal_cmd);
-
-    // 执行命令
-    let shell = app.shell();
-    debug!("[start_new_session] 执行 shell 命令");
-    let result = shell
-        .command("sh")
-        .args(["-c", &terminal_cmd])
-        .output()
-        .await;
-
-    match result {
-        Ok(output) => {
-            debug!("[start_new_session] 命令执行完成，状态: {:?}", output.status);
-            let message = if let Some(session_name) = name {
-                info!("[start_new_session] 完成，已启动 Claude Code (名称: {})", session_name);
-                format!("已在 {} 启动 Claude Code (名称: {})", working_directory, session_name)
-            } else {
-                info!("[start_new_session] 完成，已启动 Claude Code");
-                format!("已在 {} 启动 Claude Code", working_directory)
-            };
-            Ok(message)
-        }
-        Err(e) => {
-            error!("[start_new_session] 启动失败: {}", e);
-            Err(format!("启动失败: {}", e))
-        }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        // DETACHED_PROCESS 标志 (0x00000008)：让进程独立于父进程
+        const DETACHED_PROCESS: u32 = 0x00000008;
+        debug!("[start_new_session] Windows 平台，使用 wezterm (DETACHED_PROCESS)");
+        Command::new("wezterm")
+            .args(["start", "--cwd", &working_directory, "-e", "claude", "--permission-mode", "bypassPermissions"])
+            .creation_flags(DETACHED_PROCESS)
+            .spawn()
+            .map_err(|e| {
+                error!("[start_new_session] 启动失败: {}", e);
+                format!("启动终端失败: {}", e)
+            })?;
+        info!("[start_new_session] 终端启动成功（独立进程）");
     }
+
+    #[cfg(target_os = "macos")]
+    {
+        debug!("[start_new_session] macOS 平台，使用 open");
+        Command::new("open")
+            .args(["-a", "Terminal", &working_directory])
+            .spawn()
+            .map_err(|e| {
+                error!("[start_new_session] 启动失败: {}", e);
+                format!("启动终端失败: {}", e)
+            })?;
+        info!("[start_new_session] 终端启动成功");
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        debug!("[start_new_session] Linux 平台，使用 gnome-terminal");
+        Command::new("gnome-terminal")
+            .args(["--working-directory", &working_directory, "-e", "claude --permission-mode bypassPermissions"])
+            .spawn()
+            .map_err(|e| {
+                error!("[start_new_session] 启动失败: {}", e);
+                format!("启动终端失败: {}", e)
+            })?;
+        info!("[start_new_session] 终端启动成功");
+    }
+
+    let message = if let Some(session_name) = name {
+        info!("[start_new_session] 完成，已启动 Claude Code (名称: {})", session_name);
+        format!("已在 {} 启动 Claude Code (名称: {})", working_directory, session_name)
+    } else {
+        info!("[start_new_session] 完成，已启动 Claude Code");
+        format!("已在 {} 启动 Claude Code", working_directory)
+    };
+    Ok(message)
 }
 
 /// 启动 sessions 目录监听服务
