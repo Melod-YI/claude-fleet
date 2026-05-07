@@ -109,7 +109,7 @@ export function SessionCardNew({ session, onJumpToTerminal }: SessionCardNewProp
         </div>
         <p className="text-sm text-gray-600 truncate">{session.cwd}</p>
         <p className="text-xs text-gray-500 mt-1">
-          上次活动: {formatRelativeTimeFromTimestamp(session.updated_at)}
+          上次活动: {formatRelativeTimeFromTimestamp(session.updated_at)} · PID: {session.pid}
         </p>
       </div>
 

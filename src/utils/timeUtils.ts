@@ -47,10 +47,10 @@ export function formatRelativeTime(dateString: string): string {
 }
 
 /**
- * 格式化相对时间（从 Unix timestamp）
+ * 格式化相对时间（从毫秒 timestamp）
  */
 export function formatRelativeTimeFromTimestamp(timestamp: number): string {
-  const date = new Date(timestamp * 1000) // Unix timestamp 是秒，需要乘 1000
+  const date = new Date(timestamp) // 已是毫秒，无需转换
   const now = new Date()
   const diffMs = now.getTime() - date.getTime()
 
