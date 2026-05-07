@@ -11,13 +11,15 @@ use tauri::Emitter;
 use tracing::{info, debug, warn, error};
 use std::time::Instant;
 use crate::utils::claude_data::is_claude_process_running;
+use crate::utils::window_manager::get_window_title_by_pid_chain;
 
-/// Session 运行状态
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
+/// Session 运行状态（对应 Claude JSON 文件中的三种状态）
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
 pub enum SessionStatus {
-    Running,
-    WaitingInput,
+    Busy,        // agent 与 LLM 在 loop 中
+    Idle,        // 等待用户输入
+    Waiting,     // 等待用户输入
 }
 
 /// 运行中 Session 信息
@@ -31,14 +33,14 @@ pub struct RunningSession {
     pub updated_at: u64,
 }
 
-/// 全局运行中 Session 状态
-pub static RUNNING_SESSIONS: Lazy<Mutex<HashMap<String, RunningSession>>> =
+/// 全局运行中 Session 状态（PID 作为 key，因为 sessionId 会因 resume 变化）
+pub static RUNNING_SESSIONS: Lazy<Mutex<HashMap<u32, RunningSession>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// 轮询运行状态
 static POLLING_RUNNING: AtomicBool = AtomicBool::new(false);
 
-/// Hook 事件结构
+/// Hook 事件结构（用于前端通知事件兼容）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HookEvent {
     pub session_id: String,
@@ -55,125 +57,35 @@ pub struct HookEvent {
     pub reason: Option<String>,
 }
 
-/// 从文件解析 HookEvent
-pub fn parse_hook_event(file_path: &PathBuf) -> Result<HookEvent, String> {
-    info!("[parse_hook_event] 开始解析: {}", file_path.display());
-    let start = Instant::now();
-
-    debug!("[parse_hook_event] 读取文件内容");
-    let content = fs::read_to_string(file_path)
-        .map_err(|e| {
-            error!("[parse_hook_event] 读取失败 {}: {}", file_path.display(), e);
-            format!("读取事件文件失败: {}", e)
-        })?;
-
-    debug!("[parse_hook_event] 文件内容长度: {} 字节", content.len());
-    debug!("[parse_hook_event] 文件内容: {}", content);
-
-    let result = serde_json::from_str::<HookEvent>(&content)
-        .map_err(|e| {
-            error!("[parse_hook_event] JSON 解析失败 {}: {}", file_path.display(), e);
-            format!("解析事件 JSON 失败: {}", e)
-        })?;
-
-    let elapsed = start.elapsed();
-    info!("[parse_hook_event] 完成: session_id={}, event_type={}, 耗时: {}ms",
-          result.session_id, result.hook_event_name, elapsed.as_millis());
-    Ok(result)
-}
-
-/// Session 元数据（从 ~/.claude/sessions/*.json）
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct SessionMetadata {
-    pid: u32,
+/// Session 文件内容结构（从 ~/.claude/sessions/<pid>.json）
+#[derive(Debug, Clone, Deserialize)]
+pub struct SessionFileContent {
+    pub pid: u32,
     #[serde(rename = "sessionId")]
-    session_id: String,
-    cwd: String,
+    pub session_id: String,
+    pub cwd: String,
     #[serde(rename = "startedAt")]
-    started_at: u64,
+    pub started_at: u64,
     #[serde(default)]
-    status: String,
+    pub status: String,
+    #[serde(rename = "waitingFor", default)]
+    pub waiting_for: Option<String>,
     #[serde(rename = "updatedAt", default)]
-    updated_at: Option<u64>,
-}
-
-/// 获取事件目录路径
-fn get_events_dir() -> PathBuf {
-    dirs::home_dir()
-        .expect("无法获取用户目录")
-        .join(".claude-fleet")
-        .join("events")
+    pub updated_at: Option<u64>,
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 /// 获取 sessions 目录路径
-fn get_sessions_dir() -> PathBuf {
+pub fn get_sessions_dir() -> PathBuf {
     dirs::home_dir()
         .expect("无法获取用户目录")
         .join(".claude")
         .join("sessions")
 }
 
-/// 读取 session 元数据（通过 session_id 查找）
-fn read_session_metadata(session_id: &str) -> Result<SessionMetadata, String> {
-    info!("[read_session_metadata] 开始查找 session_id: {}", session_id);
-    let start = Instant::now();
-
-    let sessions_dir = get_sessions_dir();
-    debug!("[read_session_metadata] sessions 目录: {}", sessions_dir.display());
-
-    // sessions/*.json 文件名是 PID，需要遍历查找 sessionId 匹配的文件
-    let entries = fs::read_dir(&sessions_dir)
-        .map_err(|e| {
-            error!("[read_session_metadata] 读取目录失败: {}", e);
-            format!("读取 sessions 目录失败: {}", e)
-        })?;
-
-    let mut checked_files = 0;
-    let mut parse_success = 0;
-    let mut parse_fail = 0;
-
-    for entry in entries {
-        let file_path = entry.map_err(|e| {
-            warn!("[read_session_metadata] 读取条目失败: {}", e);
-            format!("读取条目失败: {}", e)
-        })?.path();
-
-        if file_path.extension().and_then(|s| s.to_str()) != Some("json") {
-            debug!("[read_session_metadata] 跳过非 json 文件: {}", file_path.display());
-            continue;
-        }
-
-        checked_files += 1;
-        debug!("[read_session_metadata] 检查文件 #{}: {}", checked_files, file_path.display());
-
-        if let Ok(content) = fs::read_to_string(&file_path) {
-            if let Ok(metadata) = serde_json::from_str::<SessionMetadata>(&content) {
-                parse_success += 1;
-                debug!("[read_session_metadata] 文件 {} 的 sessionId={}", file_path.display(), metadata.session_id);
-
-                if metadata.session_id == session_id {
-                    let elapsed = start.elapsed();
-                    info!("[read_session_metadata] 找到匹配: file={}, pid={}, cwd={}, started_at={}, status={}, 耗时: {}ms",
-                          file_path.display(), metadata.pid, metadata.cwd, metadata.started_at, metadata.status, elapsed.as_millis());
-                    return Ok(metadata);
-                }
-            } else {
-                parse_fail += 1;
-                warn!("[read_session_metadata] 解析失败: {}", file_path.display());
-            }
-        } else {
-            warn!("[read_session_metadata] 读取文件失败: {}", file_path.display());
-        }
-    }
-
-    let elapsed = start.elapsed();
-    warn!("[read_session_metadata] 未找到 session_id={}, 检查了 {} 个文件, 解析成功={}, 解析失败={}, 耗时: {}ms",
-          session_id, checked_files, parse_success, parse_fail, elapsed.as_millis());
-    Err(format!("未找到 session_id={} 的元数据", session_id))
-}
-
 /// 从路径提取最后一段作为名称
-fn get_path_name(path: &str) -> String {
+pub fn get_path_name(path: &str) -> String {
     path.split(|c| c == '\\' || c == '/')
         .filter(|s| !s.is_empty())
         .last()
@@ -181,104 +93,162 @@ fn get_path_name(path: &str) -> String {
         .to_string()
 }
 
-/// 添加运行中 session
-pub fn add_running_session(session_id: &str) -> Result<(), String> {
-    info!("[add_running_session] 开始添加 session: {}", session_id);
+/// 解析 session 名称（优先级：自定义名称 > 窗口名 > 文件夹名）
+pub fn resolve_session_name(content: &SessionFileContent) -> String {
+    info!("[resolve_session_name] 开始解析名称: pid={}", content.pid);
+
+    // 1. 优先使用用户自定义名称
+    if let Some(custom_name) = &content.name {
+        if !custom_name.is_empty() {
+            info!("[resolve_session_name] 使用自定义名称: {}", custom_name);
+            return custom_name.clone();
+        }
+    }
+
+    // 2. 尝试获取窗口标题
+    if let Some(window_title) = get_window_title_by_pid_chain(content.pid) {
+        // 判断是否为默认标题（忽略大小写，以 "claude code" 或 "claude-code" 结尾）
+        let title_lower = window_title.trim().to_lowercase();
+        let is_default_title = title_lower.ends_with("claude code") || title_lower.ends_with("claude-code");
+
+        if !is_default_title && !window_title.is_empty() {
+            info!("[resolve_session_name] 使用窗口标题: {}", window_title);
+            return window_title;
+        }
+        debug!("[resolve_session_name] 窗口标题为默认值 \"{}\"，使用文件夹名", window_title);
+    }
+
+    // 3. 使用文件夹名称
+    let folder_name = get_path_name(&content.cwd);
+    info!("[resolve_session_name] 使用文件夹名: {}", folder_name);
+    folder_name
+}
+
+/// 从文件名解析 PID："33804.json" -> 33804
+pub fn parse_pid_from_filename(filename: &str) -> Result<u32, String> {
+    filename
+        .strip_suffix(".json")
+        .and_then(|s| s.parse::<u32>().ok())
+        .ok_or_else(|| format!("无法从文件名解析 PID: {}", filename))
+}
+
+/// 从文件内容添加 session 到运行中列表
+pub fn add_running_session_from_file(content: &SessionFileContent) -> Result<(), String> {
+    info!("[add_running_session_from_file] 开始添加: pid={}, sessionId={}", content.pid, content.session_id);
     let start = Instant::now();
 
-    // 读取 session 元数据获取 PID
-    debug!("[add_running_session] 读取 session 元数据");
-    let metadata = match read_session_metadata(session_id) {
-        Ok(m) => {
-            info!("[add_running_session] 元数据读取成功: pid={}, cwd={}", m.pid, m.cwd);
-            m
-        }
-        Err(e) => {
-            error!("[add_running_session] 元数据读取失败: {}", e);
-            return Err(e);
-        }
-    };
-
     // 验证进程是否为 claude
-    debug!("[add_running_session] 检查进程 PID={} 是否为 claude", metadata.pid);
-    if !is_claude_process_running(metadata.pid) {
-        warn!("[add_running_session] PID {} 不是 claude 进程或进程已退出", metadata.pid);
-        return Err(format!("PID {} 不是 claude 进程", metadata.pid));
+    debug!("[add_running_session_from_file] 检查进程 PID={} 是否为 claude", content.pid);
+    if !is_claude_process_running(content.pid) {
+        warn!("[add_running_session_from_file] PID {} 不是 claude 进程或进程已退出", content.pid);
+        return Err(format!("PID {} 不是 claude 进程", content.pid));
     }
-    info!("[add_running_session] PID {} 确认是 claude 进程", metadata.pid);
+    info!("[add_running_session_from_file] PID {} 确认是 claude 进程", content.pid);
 
-    // 提取名称
-    let name = get_path_name(&metadata.cwd);
-    debug!("[add_running_session] 提取名称: {} -> {}", metadata.cwd, name);
+    // 提取名称（优先级：自定义名称 > 窗口名 > 文件夹名）
+    let name = resolve_session_name(content);
+    debug!("[add_running_session_from_file] 最终名称: {}", name);
 
-    // 确定状态
-    let status = if metadata.status == "idle" {
-        debug!("[add_running_session] 元数据 status=idle -> WaitingInput");
-        SessionStatus::WaitingInput
-    } else {
-        debug!("[add_running_session] 元数据 status={} -> Running", metadata.status);
-        SessionStatus::Running
+    // 状态映射：busy -> Busy, idle -> Idle, waiting -> Waiting
+    let status = match content.status.as_str() {
+        "busy" => {
+            debug!("[add_running_session_from_file] status=busy -> Busy");
+            SessionStatus::Busy
+        }
+        "idle" => {
+            debug!("[add_running_session_from_file] status=idle -> Idle");
+            SessionStatus::Idle
+        }
+        "waiting" => {
+            debug!("[add_running_session_from_file] status=waiting -> Waiting");
+            SessionStatus::Waiting
+        }
+        _ => {
+            warn!("[add_running_session_from_file] status={} 未知，默认为 Busy", content.status);
+            SessionStatus::Busy
+        }
     };
-
-    info!("[add_running_session] 创建 RunningSession: id={}, pid={}, status={}, cwd={}, name={}",
-          session_id, metadata.pid,
-          if status == SessionStatus::WaitingInput { "waiting_input" } else { "running" },
-          metadata.cwd, name);
 
     let session = RunningSession {
-        session_id: session_id.to_string(),
-        pid: metadata.pid,
+        session_id: content.session_id.clone(),
+        pid: content.pid,
         status,
-        cwd: metadata.cwd,
+        cwd: content.cwd.clone(),
         name,
-        updated_at: metadata.updated_at.unwrap_or(metadata.started_at),
+        updated_at: content.updated_at.unwrap_or(content.started_at),
     };
 
-    // 添加到全局状态
-    debug!("[add_running_session] 获取锁并添加到 RUNNING_SESSIONS");
-    RUNNING_SESSIONS.lock().unwrap().insert(session_id.to_string(), session);
+    info!("[add_running_session_from_file] 创建 RunningSession: id={}, pid={}, status={}, cwd={}",
+          session.session_id, session.pid,
+          match status {
+              SessionStatus::Busy => "busy",
+              SessionStatus::Idle => "idle",
+              SessionStatus::Waiting => "waiting",
+          },
+          session.cwd);
+
+    // 添加到全局状态（PID 作为 key）
+    RUNNING_SESSIONS.lock().unwrap().insert(content.pid, session);
 
     let elapsed = start.elapsed();
-    info!("[add_running_session] 完成，耗时: {}ms", elapsed.as_millis());
+    info!("[add_running_session_from_file] 完成，耗时: {}ms", elapsed.as_millis());
     Ok(())
 }
 
-/// 更新 session 状态
-pub fn update_session_status(session_id: &str, status: SessionStatus) {
-    info!("[update_session_status] 开始更新: session_id={}, 目标状态={}",
-          session_id, if status == SessionStatus::WaitingInput { "waiting_input" } else { "running" });
+/// 从文件内容更新 session 状态（PID 作为查找 key）
+pub fn update_session_status_from_file(content: &SessionFileContent) {
+    info!("[update_session_status_from_file] 开始更新: pid={}, sessionId={}, status={}",
+          content.pid, content.session_id, content.status);
 
     let mut sessions = RUNNING_SESSIONS.lock().unwrap();
 
-    if let Some(session) = sessions.get_mut(session_id) {
-        let old_status = session.status.clone();
-        debug!("[update_session_status] 当前状态: {}", if old_status == SessionStatus::WaitingInput { "waiting_input" } else { "running" });
+    // 用 PID 查找（sessionId 会因 resume 变化）
+    if let Some(session) = sessions.get_mut(&content.pid) {
+        // 检查 sessionId 是否变化（resume 情况）
+        if session.session_id != content.session_id {
+            info!("[update_session_status_from_file] sessionId 变化: {} -> {}",
+                  session.session_id, content.session_id);
+            session.session_id = content.session_id.clone();
+        }
 
-        session.status = status;
-        session.updated_at = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let new_status = match content.status.as_str() {
+            "busy" => SessionStatus::Busy,
+            "idle" => SessionStatus::Idle,
+            "waiting" => SessionStatus::Waiting,
+            _ => SessionStatus::Busy,
+        };
 
-        info!("[update_session_status] 完成: {} -> {}",
-              if old_status == SessionStatus::WaitingInput { "waiting_input" } else { "running" },
-              if status == SessionStatus::WaitingInput { "waiting_input" } else { "running" });
+        let old_status = session.status;
+        session.status = new_status;
+        session.updated_at = content.updated_at.unwrap_or(session.updated_at);
+
+        info!("[update_session_status_from_file] 完成: {} -> {}",
+              match old_status {
+                  SessionStatus::Busy => "busy",
+                  SessionStatus::Idle => "idle",
+                  SessionStatus::Waiting => "waiting",
+              },
+              match new_status {
+                  SessionStatus::Busy => "busy",
+                  SessionStatus::Idle => "idle",
+                  SessionStatus::Waiting => "waiting",
+              });
     } else {
-        warn!("[update_session_status] 未找到 session: {}", session_id);
+        warn!("[update_session_status_from_file] 未找到 PID={} 的 session", content.pid);
     }
 }
 
-/// 移除运行中 session
-pub fn remove_running_session(session_id: &str) {
-    info!("[remove_running_session] 开始移除: {}", session_id);
+/// 根据 PID 移除 session（PID 作为 key，直接移除）
+pub fn remove_running_session_by_pid(pid: u32) {
+    info!("[remove_running_session_by_pid] 开始移除: pid={}", pid);
 
     let mut sessions = RUNNING_SESSIONS.lock().unwrap();
 
-    if sessions.remove(session_id).is_some() {
-        info!("[remove_running_session] 完成: {} 已移除，剩余 {} 个 session",
-              session_id, sessions.len());
+    if let Some(session) = sessions.remove(&pid) {
+        info!("[remove_running_session_by_pid] 完成: pid={}, sessionId={} 已移除，剩余 {} 个 session",
+              pid, session.session_id, sessions.len());
     } else {
-        warn!("[remove_running_session] 未找到 session: {}", session_id);
+        warn!("[remove_running_session_by_pid] 未找到 pid={} 的 session", pid);
     }
 }
 
@@ -288,46 +258,45 @@ pub fn get_running_sessions() -> Vec<RunningSession> {
 
     let sessions: Vec<RunningSession> = RUNNING_SESSIONS.lock().unwrap().values().cloned().collect();
 
-    let running_count = sessions.iter().filter(|s| s.status == SessionStatus::Running).count();
-    let waiting_count = sessions.iter().filter(|s| s.status == SessionStatus::WaitingInput).count();
+    let busy_count = sessions.iter().filter(|s| s.status == SessionStatus::Busy).count();
+    let idle_count = sessions.iter().filter(|s| s.status == SessionStatus::Idle).count();
+    let waiting_count = sessions.iter().filter(|s| s.status == SessionStatus::Waiting).count();
+    let waiting_input_total = idle_count + waiting_count;
 
-    debug!("[get_running_sessions] 完成: 总数={}, running={}, waiting_input={}",
-           sessions.len(), running_count, waiting_count);
+    debug!("[get_running_sessions] 完成: 总数={}, busy={}, idle={}, waiting={}, 等待输入总数={}",
+           sessions.len(), busy_count, idle_count, waiting_count, waiting_input_total);
     sessions
 }
 
-/// 应用启动时初始化运行中 session 列表
+/// 应用启动时初始化运行中 session 列表（扫描 sessions 目录）
 pub fn init_running_sessions() -> Result<Vec<RunningSession>, String> {
     info!("[init_running_sessions] 开始初始化运行中 session 列表");
     let start = Instant::now();
 
-    let events_dir = get_events_dir();
-    debug!("[init_running_sessions] 事件目录: {}", events_dir.display());
+    let sessions_dir = get_sessions_dir();
+    debug!("[init_running_sessions] sessions 目录: {}", sessions_dir.display());
 
-    if !events_dir.exists() {
-        info!("[init_running_sessions] 事件目录不存在，创建目录");
-        fs::create_dir_all(&events_dir)
-            .map_err(|e| {
-                error!("[init_running_sessions] 创建事件目录失败: {}", e);
-                format!("创建事件目录失败: {}", e)
-            })?;
-        info!("[init_running_sessions] 事件目录创建成功，返回空列表");
+    if !sessions_dir.exists() {
+        info!("[init_running_sessions] sessions 目录不存在，返回空列表");
         return Ok(Vec::new());
     }
 
-    // 读取所有事件文件
-    info!("[init_running_sessions] 读取事件文件");
-    let mut events_by_session: HashMap<String, Vec<HookEvent>> = HashMap::new();
+    // 清空现有状态
+    debug!("[init_running_sessions] 清空 RUNNING_SESSIONS");
+    RUNNING_SESSIONS.lock().unwrap().clear();
+
+    // 扫描 sessions 目录下的所有 JSON 文件
+    let entries = fs::read_dir(&sessions_dir)
+        .map_err(|e| {
+            error!("[init_running_sessions] 读取目录失败: {}", e);
+            format!("读取 sessions 目录失败: {}", e)
+        })?;
+
     let mut total_files = 0;
     let mut json_files = 0;
-    let mut parsed_files = 0;
+    let mut added_count = 0;
     let mut parse_failed = 0;
-
-    let entries = fs::read_dir(&events_dir)
-        .map_err(|e| {
-            error!("[init_running_sessions] 读取事件目录失败: {}", e);
-            format!("读取事件目录失败: {}", e)
-        })?;
+    let mut process_dead = 0;
 
     for entry in entries {
         let file_path = entry.map_err(|e| {
@@ -338,123 +307,46 @@ pub fn init_running_sessions() -> Result<Vec<RunningSession>, String> {
         total_files += 1;
 
         if file_path.extension().and_then(|s| s.to_str()) != Some("json") {
-            debug!("[init_running_sessions] 跳过非 json 文件: {}", file_path.display());
             continue;
         }
 
         json_files += 1;
-        debug!("[init_running_sessions] 读取事件文件 #{}: {}", json_files, file_path.display());
+        debug!("[init_running_sessions] 检查文件 #{}: {}", json_files, file_path.display());
 
-        if let Ok(event) = parse_hook_event(&file_path) {
-            parsed_files += 1;
-            debug!("[init_running_sessions] 解析成功: session_id={}, event_type={}",
-                   event.session_id, event.hook_event_name);
-            events_by_session
-                .entry(event.session_id.clone())
-                .or_insert_with(Vec::new)
-                .push(event);
-        } else {
-            parse_failed += 1;
-            warn!("[init_running_sessions] 解析失败: {}", file_path.display());
-        }
-    }
+        // 解析文件内容
+        if let Ok(content) = fs::read_to_string(&file_path) {
+            if let Ok(session_content) = serde_json::from_str::<SessionFileContent>(&content) {
+                debug!("[init_running_sessions] 解析成功: pid={}, sessionId={}, status={}",
+                       session_content.pid, session_content.session_id, session_content.status);
 
-    info!("[init_running_sessions] 文件统计: 总数={}, json={}, 解析成功={}, 解析失败={}",
-          total_files, json_files, parsed_files, parse_failed);
-    info!("[init_running_sessions] 按 session 分组: {} 个不同 session", events_by_session.len());
+                // 验证进程是否存活
+                if !is_claude_process_running(session_content.pid) {
+                    process_dead += 1;
+                    debug!("[init_running_sessions] PID {} 进程已退出，跳过", session_content.pid);
+                    continue;
+                }
 
-    // 清空现有状态
-    debug!("[init_running_sessions] 清空 RUNNING_SESSIONS");
-    RUNNING_SESSIONS.lock().unwrap().clear();
-
-    // 分析每个 session 的状态
-    let mut added_count = 0;
-    let mut skipped_end_count = 0;
-    let mut skipped_no_start_count = 0;
-    let mut add_failed_count = 0;
-
-    for (session_id, events) in events_by_session.iter() {
-        info!("[init_running_sessions] 分析 session {}，事件数量: {}", session_id, events.len());
-
-        // 打印所有事件类型
-        for event in events {
-            debug!("[init_running_sessions] session {} 事件: type={}, cwd={}, model={}",
-                   session_id, event.hook_event_name,
-                   event.cwd.as_ref().unwrap_or(&"none".to_string()),
-                   event.model.as_ref().unwrap_or(&"none".to_string()));
-        }
-
-        // 检查是否有 SessionEnd
-        let has_end = events.iter().any(|e| e.hook_event_name == "SessionEnd");
-        if has_end {
-            skipped_end_count += 1;
-            info!("[init_running_sessions] session {} 有 SessionEnd，跳过", session_id);
-            continue;
-        }
-
-        // 检查是否有 SessionStart
-        let has_start = events.iter().any(|e| e.hook_event_name == "SessionStart");
-        if has_start {
-            info!("[init_running_sessions] session {} 有 SessionStart，尝试添加", session_id);
-            // 尝试添加到运行中列表
-            if add_running_session(session_id).is_ok() {
-                added_count += 1;
-                // 检查是否有 Notification（等待输入）
-                let has_notification = events.iter().any(|e| e.hook_event_name == "Notification");
-                if has_notification {
-                    info!("[init_running_sessions] session {} 有 Notification，更新为 waiting_input", session_id);
-                    update_session_status(session_id, SessionStatus::WaitingInput);
+                // 添加到运行中列表
+                if add_running_session_from_file(&session_content).is_ok() {
+                    added_count += 1;
                 }
             } else {
-                add_failed_count += 1;
-                warn!("[init_running_sessions] 添加 session {} 失败", session_id);
+                parse_failed += 1;
+                warn!("[init_running_sessions] 解析失败: {}", file_path.display());
             }
         } else {
-            skipped_no_start_count += 1;
-            debug!("[init_running_sessions] session {} 没有 SessionStart，跳过", session_id);
+            parse_failed += 1;
+            warn!("[init_running_sessions] 读取文件失败: {}", file_path.display());
         }
     }
 
-    info!("[init_running_sessions] 分析结果: 添加={}, SessionEnd跳过={}, 无SessionStart跳过={}, 添加失败={}",
-          added_count, skipped_end_count, skipped_no_start_count, add_failed_count);
-
-    // 清理已处理的事件文件
-    info!("[init_running_sessions] 清理事件目录");
-    cleanup_events_dir(&events_dir);
+    info!("[init_running_sessions] 统计: 总文件={}, json={}, 解析失败={}, 进程已退出={}, 成功添加={}",
+          total_files, json_files, parse_failed, process_dead, added_count);
 
     let result = get_running_sessions();
     let elapsed = start.elapsed();
     info!("[init_running_sessions] 完成，运行中 session 数量: {}，耗时: {}ms", result.len(), elapsed.as_millis());
     Ok(result)
-}
-
-/// 清理事件目录
-fn cleanup_events_dir(events_dir: &PathBuf) {
-    info!("[cleanup_events_dir] 开始清理: {}", events_dir.display());
-    let start = Instant::now();
-
-    if let Ok(entries) = fs::read_dir(events_dir) {
-        let mut cleaned = 0;
-        let mut failed = 0;
-
-        for entry in entries.flatten() {
-            let file_path = entry.path();
-            if file_path.is_file() {
-                debug!("[cleanup_events_dir] 删除文件: {}", file_path.display());
-                if fs::remove_file(&file_path).is_ok() {
-                    cleaned += 1;
-                } else {
-                    failed += 1;
-                    warn!("[cleanup_events_dir] 删除失败: {}", file_path.display());
-                }
-            }
-        }
-
-        let elapsed = start.elapsed();
-        info!("[cleanup_events_dir] 完成: 清理={}, 失败={}, 耗时: {}ms", cleaned, failed, elapsed.as_millis());
-    } else {
-        warn!("[cleanup_events_dir] 无法读取目录");
-    }
 }
 
 /// 启动定时轮询（检测意外退出）
@@ -487,7 +379,6 @@ pub fn start_polling(app_handle: tauri::AppHandle) {
             let poll_start = Instant::now();
             info!("[polling_thread] 轮询 #{} 开始", poll_count);
 
-            // 获取当前 session 数量
             let session_count = RUNNING_SESSIONS.lock().unwrap().len();
             debug!("[polling_thread] 当前 session 数量: {}", session_count);
 
@@ -496,40 +387,34 @@ pub fn start_polling(app_handle: tauri::AppHandle) {
                 continue;
             }
 
-            // 检查每个 session 的进程状态
-            let mut checked_pids: Vec<(String, u32)> = Vec::new();
-            let sessions_to_remove: Vec<String> = RUNNING_SESSIONS
+            // 检查每个 session 的进程状态（PID 作为 key）
+            let pids_to_remove: Vec<u32> = RUNNING_SESSIONS
                 .lock()
                 .unwrap()
                 .iter()
-                .filter(|(_, session)| {
-                    checked_pids.push((session.session_id.clone(), session.pid));
-                    let running = is_claude_process_running(session.pid);
+                .filter(|(pid, session)| {
+                    let running = is_claude_process_running(**pid);
                     if !running {
-                        warn!("[polling_thread] PID {} (session {}) 已退出", session.pid, session.session_id);
+                        warn!("[polling_thread] PID {} (session {}) 已退出", pid, session.session_id);
                     }
                     !running
                 })
-                .map(|(id, _)| id.clone())
+                .map(|(pid, _)| *pid)
                 .collect();
 
-            debug!("[polling_thread] 检查了 {} 个 PID: {:?}", checked_pids.len(), checked_pids);
-
-            let removed_count = sessions_to_remove.len();
+            let removed_count = pids_to_remove.len();
             if removed_count > 0 {
                 info!("[polling_thread] 检测到 {} 个意外退出的 session", removed_count);
             }
 
-            for session_id in &sessions_to_remove {
-                info!("[polling_thread] 移除 session: {}", session_id);
-                RUNNING_SESSIONS.lock().unwrap().remove(session_id);
+            for pid in &pids_to_remove {
+                info!("[polling_thread] 移除 PID: {}", pid);
+                RUNNING_SESSIONS.lock().unwrap().remove(pid);
             }
 
             // 通知前端
             let sessions = get_running_sessions();
-            let new_count = sessions.len();
 
-            debug!("[polling_thread] 发送 running_sessions_changed 事件，数量: {} -> {}", session_count, new_count);
             if let Err(e) = app_handle_clone.emit("running_sessions_changed", sessions) {
                 error!("[polling_thread] 发送事件失败: {}", e);
             } else {
