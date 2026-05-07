@@ -3,13 +3,12 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::collections::HashSet;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use tauri::Emitter;
 use tracing::{info, debug, warn, error};
-use std::time::Instant;
 use crate::utils::running_sessions::{
     add_running_session_from_file,
     update_session_status_from_file,
@@ -20,6 +19,12 @@ use crate::utils::running_sessions::{
 };
 
 static WATCHER_RUNNING: AtomicBool = AtomicBool::new(false);
+
+/// 启动时间（用于避免启动初期发送通知）
+static WATCHER_START_TIME: Lazy<Mutex<Option<Instant>>> = Lazy::new(|| Mutex::new(None));
+
+/// 启动后多久才开始发送通知（秒）
+const NOTIFICATION_DELAY_SECS: u64 = 5;
 
 /// 已处理文件的记录（用于去重，避免同一文件被处理多次）
 static PROCESSED_FILES: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(HashSet::new()));
@@ -77,6 +82,13 @@ pub fn start_sessions_watcher(app_handle: tauri::AppHandle) -> Result<(), String
 
     info!("[start_sessions_watcher] 设置运行标志为 true");
     WATCHER_RUNNING.store(true, Ordering::SeqCst);
+
+    // 记录启动时间（用于避免启动初期发送通知）
+    {
+        let mut start_time = WATCHER_START_TIME.lock().unwrap();
+        *start_time = Some(Instant::now());
+    }
+    info!("[start_sessions_watcher] 记录启动时间，通知将在 {} 秒后开始发送", NOTIFICATION_DELAY_SECS);
 
     let sessions_dir = get_sessions_dir();
     info!("[start_sessions_watcher] sessions 目录: {}", sessions_dir.display());
@@ -341,6 +353,19 @@ fn emit_sessions_changed(app_handle: &tauri::AppHandle) {
 /// 发送等待输入通知事件
 fn emit_waiting_input_notification(session: &SessionFileContent, app_handle: &tauri::AppHandle) {
     use crate::utils::running_sessions::HookEvent;
+
+    // 检查是否已过了启动延迟期（避免启动初期发送大量通知）
+    {
+        let start_time = WATCHER_START_TIME.lock().unwrap();
+        if let Some(start) = *start_time {
+            let elapsed = start.elapsed().as_secs();
+            if elapsed < NOTIFICATION_DELAY_SECS {
+                debug!("[emit_waiting_input_notification] 启动后 {} 秒，仍在延迟期内（需 {} 秒），跳过通知: sessionId={}",
+                       elapsed, NOTIFICATION_DELAY_SECS, session.session_id);
+                return;
+            }
+        }
+    }
 
     // 构造事件数据（兼容前端现有格式）
     let event_data = HookEvent {
