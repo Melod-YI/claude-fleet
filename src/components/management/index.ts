@@ -1,8 +1,6 @@
 export { ManagementTab } from './ManagementTab'
 export { SessionList } from './SessionList'
 export { SessionListItem } from './SessionListItem'
-export { SearchBar } from './SearchBar'
 export { TimeRangeSelect } from './TimeRangeSelect'
-export { DirectoryTree } from './DirectoryTree'
 export { SessionDetail } from './SessionDetail'
 export { ConversationView } from './ConversationView'
