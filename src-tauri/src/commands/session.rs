@@ -128,20 +128,43 @@ pub fn delete_session_cmd(session_id: String) -> Result<(), String> {
 pub async fn start_new_session(
     working_directory: String,
     name: Option<String>,
+    terminal_type: String,
 ) -> Result<String, String> {
     use std::process::Command;
-    info!("[start_new_session] 开始启动新 session，工作目录: {}, 名称: {:?}",
-          working_directory, name);
+    use crate::utils::window_manager::get_terminal_config_for_new;
+    info!("[start_new_session] 开始启动新 session，工作目录: {}, 名称: {:?}, 终端: {}",
+          working_directory, name, terminal_type);
 
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
-        // DETACHED_PROCESS 标志 (0x00000008)：让进程独立于父进程
         const DETACHED_PROCESS: u32 = 0x00000008;
-        debug!("[start_new_session] Windows 平台，使用 wezterm (DETACHED_PROCESS)");
-        Command::new("wezterm")
-            .args(["start", "--cwd", &working_directory, "-e", "claude", "--permission-mode", "bypassPermissions"])
-            .creation_flags(DETACHED_PROCESS)
+
+        // 获取终端配置（新建 session）
+        let config = match get_terminal_config_for_new(&terminal_type) {
+            Some(c) => c,
+            None => {
+                error!("[start_new_session] 不支持的终端类型: {}", terminal_type);
+                return Err(format!("不支持的终端类型: {}", terminal_type));
+            }
+        };
+
+        info!("[start_new_session] 终端配置: {} {}", config.command, config.args.join(" "));
+
+        // 替换参数中的变量
+        let args: Vec<String> = config.args.iter().map(|arg| {
+            arg.replace("{cwd}", &working_directory)
+        }).collect();
+
+        let mut cmd = Command::new(config.command);
+        cmd.args(&args);
+
+        // cmd/powershell 需要设置当前目录
+        if terminal_type != "wezterm" {
+            cmd.current_dir(&working_directory);
+        }
+
+        cmd.creation_flags(DETACHED_PROCESS)
             .spawn()
             .map_err(|e| {
                 error!("[start_new_session] 启动失败: {}", e);

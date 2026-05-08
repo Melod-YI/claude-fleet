@@ -9,12 +9,12 @@ use windows::{
 };
 
 /// 终端配置结构
-struct TerminalConfig {
-    command: &'static str,
-    args: Vec<&'static str>,
+pub struct TerminalConfig {
+    pub command: &'static str,
+    pub args: Vec<&'static str>,
 }
 
-/// 获取终端配置
+/// 获取终端配置（恢复 session）
 fn get_terminal_config(terminal_type: &str) -> Option<TerminalConfig> {
     match terminal_type {
         "wezterm" => Some(TerminalConfig {
@@ -40,6 +40,37 @@ fn get_terminal_config(terminal_type: &str) -> Option<TerminalConfig> {
                 "-NoExit",
                 "-Command",
                 "claude --resume {session_id} --permission-mode bypassPermissions",
+            ],
+        }),
+        _ => None,
+    }
+}
+
+/// 获取终端配置（新建 session）
+pub fn get_terminal_config_for_new(terminal_type: &str) -> Option<TerminalConfig> {
+    match terminal_type {
+        "wezterm" => Some(TerminalConfig {
+            command: "wezterm",
+            args: vec![
+                "start",
+                "--cwd", "{cwd}",
+                "-e", "claude",
+                "--permission-mode", "bypassPermissions",
+            ],
+        }),
+        "cmd" => Some(TerminalConfig {
+            command: "cmd.exe",
+            args: vec![
+                "/K",
+                "claude --permission-mode bypassPermissions",
+            ],
+        }),
+        "powershell" => Some(TerminalConfig {
+            command: "powershell.exe",
+            args: vec![
+                "-NoExit",
+                "-Command",
+                "claude --permission-mode bypassPermissions",
             ],
         }),
         _ => None,

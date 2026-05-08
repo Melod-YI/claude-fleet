@@ -13,6 +13,7 @@ import { FolderOpen, Loader2 } from "lucide-react"
 import { open as openDialog } from "@tauri-apps/plugin-dialog"
 import { invoke } from "@tauri-apps/api/core"
 import type { FavoritePath } from "@/types"
+import { useSettingsStore } from "@/stores/settingsStore"
 
 interface NewSessionDialogProps {
   open: boolean
@@ -31,6 +32,7 @@ export function NewSessionDialog({
   const [sessionName, setSessionName] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const terminalType = useSettingsStore((state) => state.terminalType)
 
   const handleBrowse = async () => {
     try {
@@ -66,6 +68,7 @@ export function NewSessionDialog({
       await invoke('start_new_session', {
         workingDirectory,
         name: sessionName || undefined,
+        terminalType,
       })
 
       // 记录路径使用（用于排序）
