@@ -39,7 +39,7 @@ fn get_terminal_config(terminal_type: &str) -> Option<TerminalConfig> {
             args: vec![
                 "-NoExit",
                 "-Command",
-                "claude --resume {session_id} --permission-mode bypassPermissions",
+                "Start-Process powershell -ArgumentList '-NoExit', '-Command', 'claude --resume {session_id} --permission-mode bypassPermissions' -WorkingDirectory '{cwd}'",
             ],
         }),
         _ => None,
@@ -70,7 +70,7 @@ pub fn get_terminal_config_for_new(terminal_type: &str) -> Option<TerminalConfig
             args: vec![
                 "-NoExit",
                 "-Command",
-                "claude --permission-mode bypassPermissions",
+                "Start-Process powershell -ArgumentList '-NoExit', '-Command', 'claude --permission-mode bypassPermissions' -WorkingDirectory '{cwd}'",
             ],
         }),
         _ => None,
