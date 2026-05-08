@@ -37,8 +37,9 @@ fn get_terminal_config(terminal_type: &str) -> Option<TerminalConfig> {
         "powershell" => Some(TerminalConfig {
             command: "powershell.exe",
             args: vec![
+                "-NoExit",
                 "-Command",
-                "Start-Process powershell -ArgumentList '-NoExit', '-Command', 'claude --resume {session_id} --permission-mode bypassPermissions' -WorkingDirectory '{cwd}'",
+                "claude --resume {session_id} --permission-mode bypassPermissions",
             ],
         }),
         _ => None,
@@ -67,8 +68,9 @@ pub fn get_terminal_config_for_new(terminal_type: &str) -> Option<TerminalConfig
         "powershell" => Some(TerminalConfig {
             command: "powershell.exe",
             args: vec![
+                "-NoExit",
                 "-Command",
-                "Start-Process powershell -ArgumentList '-NoExit', '-Command', 'claude --permission-mode bypassPermissions' -WorkingDirectory '{cwd}'",
+                "claude --permission-mode bypassPermissions",
             ],
         }),
         _ => None,
@@ -479,7 +481,10 @@ pub fn start_terminal_with_resume(working_directory: &str, session_id: &str, ter
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
+        // DETACHED_PROCESS: 进程独立运行（适用于 GUI 程序如 wezterm）
         const DETACHED_PROCESS: u32 = 0x00000008;
+        // CREATE_NEW_CONSOLE: 创建新控制台窗口（适用于 cmd/powershell）
+        const CREATE_NEW_CONSOLE: u32 = 0x00000010;
 
         // 获取终端配置
         let config = match get_terminal_config(terminal_type) {
@@ -498,16 +503,22 @@ pub fn start_terminal_with_resume(working_directory: &str, session_id: &str, ter
                .replace("{session_id}", session_id)
         }).collect();
 
-        // 对于 cmd/powershell，需要在工作目录下启动
         let mut cmd = Command::new(config.command);
         cmd.args(&args);
 
-        // wezterm 通过 --cwd 参数指定目录，cmd/powershell 需要设置当前目录
+        // wezterm 使用 DETACHED_PROCESS，cmd/powershell 使用 CREATE_NEW_CONSOLE
+        let flags = if terminal_type == "wezterm" {
+            DETACHED_PROCESS
+        } else {
+            CREATE_NEW_CONSOLE
+        };
+
+        // cmd/powershell 需要设置当前目录
         if terminal_type != "wezterm" {
             cmd.current_dir(working_directory);
         }
 
-        cmd.creation_flags(DETACHED_PROCESS)
+        cmd.creation_flags(flags)
             .spawn()
             .map_err(|e| {
                 error!("[start_terminal_with_resume] 启动失败: {}", e);

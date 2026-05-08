@@ -138,7 +138,10 @@ pub async fn start_new_session(
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
+        // DETACHED_PROCESS: 进程独立运行（适用于 GUI 程序如 wezterm）
         const DETACHED_PROCESS: u32 = 0x00000008;
+        // CREATE_NEW_CONSOLE: 创建新控制台窗口（适用于 cmd/powershell）
+        const CREATE_NEW_CONSOLE: u32 = 0x00000010;
 
         // 获取终端配置（新建 session）
         let config = match get_terminal_config_for_new(&terminal_type) {
@@ -159,12 +162,19 @@ pub async fn start_new_session(
         let mut cmd = Command::new(config.command);
         cmd.args(&args);
 
+        // wezterm 使用 DETACHED_PROCESS，cmd/powershell 使用 CREATE_NEW_CONSOLE
+        let flags = if terminal_type == "wezterm" {
+            DETACHED_PROCESS
+        } else {
+            CREATE_NEW_CONSOLE
+        };
+
         // cmd/powershell 需要设置当前目录
         if terminal_type != "wezterm" {
             cmd.current_dir(&working_directory);
         }
 
-        cmd.creation_flags(DETACHED_PROCESS)
+        cmd.creation_flags(flags)
             .spawn()
             .map_err(|e| {
                 error!("[start_new_session] 启动失败: {}", e);
