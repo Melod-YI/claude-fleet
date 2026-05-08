@@ -37,7 +37,6 @@ fn get_terminal_config(terminal_type: &str) -> Option<TerminalConfig> {
         "powershell" => Some(TerminalConfig {
             command: "powershell.exe",
             args: vec![
-                "-NoExit",
                 "-Command",
                 "Start-Process powershell -ArgumentList '-NoExit', '-Command', 'claude --resume {session_id} --permission-mode bypassPermissions' -WorkingDirectory '{cwd}'",
             ],
@@ -68,7 +67,6 @@ pub fn get_terminal_config_for_new(terminal_type: &str) -> Option<TerminalConfig
         "powershell" => Some(TerminalConfig {
             command: "powershell.exe",
             args: vec![
-                "-NoExit",
                 "-Command",
                 "Start-Process powershell -ArgumentList '-NoExit', '-Command', 'claude --permission-mode bypassPermissions' -WorkingDirectory '{cwd}'",
             ],
