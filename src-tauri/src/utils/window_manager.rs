@@ -8,6 +8,44 @@ use windows::{
     Win32::UI::Input::KeyboardAndMouse::*,
 };
 
+/// 终端配置结构
+struct TerminalConfig {
+    command: &'static str,
+    args: Vec<&'static str>,
+}
+
+/// 获取终端配置
+fn get_terminal_config(terminal_type: &str) -> Option<TerminalConfig> {
+    match terminal_type {
+        "wezterm" => Some(TerminalConfig {
+            command: "wezterm",
+            args: vec![
+                "start",
+                "--cwd", "{cwd}",
+                "-e", "claude",
+                "--resume", "{session_id}",
+                "--permission-mode", "bypassPermissions",
+            ],
+        }),
+        "cmd" => Some(TerminalConfig {
+            command: "cmd.exe",
+            args: vec![
+                "/K",
+                "claude --resume {session_id} --permission-mode bypassPermissions",
+            ],
+        }),
+        "powershell" => Some(TerminalConfig {
+            command: "powershell.exe",
+            args: vec![
+                "-NoExit",
+                "-Command",
+                "claude --resume {session_id} --permission-mode bypassPermissions",
+            ],
+        }),
+        _ => None,
+    }
+}
+
 /// 用于传递给 EnumWindows 回调的数据
 #[cfg(target_os = "windows")]
 struct EnumWindowsData {
@@ -405,27 +443,42 @@ pub fn activate_window(window_id: u64) -> Result<(), String> {
 }
 
 /// 启动新终端窗口并恢复 session
-pub fn start_terminal_with_resume(working_directory: &str, session_id: &str) -> Result<(), String> {
-    info!("[start_terminal_with_resume] 开始启动终端，工作目录: {}, session_id: {}", working_directory, session_id);
+pub fn start_terminal_with_resume(working_directory: &str, session_id: &str, terminal_type: &str) -> Result<(), String> {
+    info!("[start_terminal_with_resume] 开始启动终端，工作目录: {}, session_id: {}, 终端: {}",
+          working_directory, session_id, terminal_type);
 
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
-        // DETACHED_PROCESS 标志 (0x00000008)：让进程独立于父进程
         const DETACHED_PROCESS: u32 = 0x00000008;
 
-        let args = [
-            "start",
-            "--cwd", working_directory,
-            "-e", "claude",
-            "--resume", session_id,
-            "--permission-mode", "bypassPermissions",
-        ];
-        info!("[start_terminal_with_resume] 命令: wezterm {} (DETACHED_PROCESS)", args.join(" "));
+        // 获取终端配置
+        let config = match get_terminal_config(terminal_type) {
+            Some(c) => c,
+            None => {
+                error!("[start_terminal_with_resume] 不支持的终端类型: {}", terminal_type);
+                return Err(format!("不支持的终端类型: {}", terminal_type));
+            }
+        };
 
-        Command::new("wezterm")
-            .args(args)
-            .creation_flags(DETACHED_PROCESS)
+        info!("[start_terminal_with_resume] 终端配置: {} {}", config.command, config.args.join(" "));
+
+        // 替换参数中的变量
+        let args: Vec<String> = config.args.iter().map(|arg| {
+            arg.replace("{cwd}", working_directory)
+               .replace("{session_id}", session_id)
+        }).collect();
+
+        // 对于 cmd/powershell，需要在工作目录下启动
+        let mut cmd = Command::new(config.command);
+        cmd.args(&args);
+
+        // wezterm 通过 --cwd 参数指定目录，cmd/powershell 需要设置当前目录
+        if terminal_type != "wezterm" {
+            cmd.current_dir(working_directory);
+        }
+
+        cmd.creation_flags(DETACHED_PROCESS)
             .spawn()
             .map_err(|e| {
                 error!("[start_terminal_with_resume] 启动失败: {}", e);
@@ -435,33 +488,11 @@ pub fn start_terminal_with_resume(working_directory: &str, session_id: &str) -> 
         info!("[start_terminal_with_resume] 终端启动成功（独立进程）");
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(not(target_os = "windows"))]
     {
-        Command::new("open")
-            .args(["-a", "Terminal", working_directory])
-            .spawn()
-            .map_err(|e| {
-                error!("[start_terminal_with_resume] 启动失败: {}", e);
-                format!("启动终端失败: {}", e)
-            })?;
-
-        info!("[start_terminal_with_resume] 终端启动成功");
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        Command::new("gnome-terminal")
-            .args([
-                "--working-directory", working_directory,
-                "-e", format!("claude --resume {} --permission-mode bypassPermissions", session_id),
-            ])
-            .spawn()
-            .map_err(|e| {
-                error!("[start_terminal_with_resume] 启动失败: {}", e);
-                format!("启动终端失败: {}", e)
-            })?;
-
-        info!("[start_terminal_with_resume] 终端启动成功");
+        warn!("[start_terminal_with_resume] 非 Windows 平台，终端配置功能受限");
+        let _ = (working_directory, session_id, terminal_type);
+        Err("终端恢复功能仅支持 Windows 平台".to_string())
     }
 
     Ok(())

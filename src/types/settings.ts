@@ -1,3 +1,5 @@
+export type TerminalType = 'wezterm' | 'cmd' | 'powershell'
+
 export interface FavoritePath {
   path: string           // 标准化的路径
   useCount: number       // 使用次数
@@ -14,6 +16,7 @@ export interface AppSettings {
   notificationSound: boolean
   notificationDesktop: boolean
   theme: 'light' | 'dark' | 'system'
+  terminalType: TerminalType
 }
 
 // 常用路径排序权重配置

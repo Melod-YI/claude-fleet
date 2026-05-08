@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { AppSettings, FavoritePath } from '@/types'
+import type { AppSettings, FavoritePath, TerminalType } from '@/types'
 import { FAVORITE_PATH_CONFIG } from '@/types'
 
 interface SettingsState extends AppSettings {
@@ -12,6 +12,7 @@ interface SettingsState extends AppSettings {
   setNotificationSound: (enabled: boolean) => void
   setNotificationDesktop: (enabled: boolean) => void
   setTheme: (theme: 'light' | 'dark' | 'system') => void
+  setTerminalType: (type: TerminalType) => void
   // 获取排序后的常用路径
   getSortedFavoritePaths: () => FavoritePath[]
 }
@@ -22,6 +23,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   notificationSound: true,
   notificationDesktop: true,
   theme: 'system',
+  terminalType: 'wezterm',
 }
 
 /**
@@ -137,6 +139,7 @@ export const useSettingsStore = create<SettingsState>()(
       setNotificationSound: (enabled) => set({ notificationSound: enabled }),
       setNotificationDesktop: (enabled) => set({ notificationDesktop: enabled }),
       setTheme: (theme) => set({ theme }),
+      setTerminalType: (type) => set({ terminalType: type }),
 
       /**
        * 获取排序后的常用路径（用于显示）
