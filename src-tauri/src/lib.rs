@@ -74,6 +74,12 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 设置 Ctrl+C 处理，优雅退出
+    ctrlc::set_handler(|| {
+        tracing::info!("[exit] 收到 Ctrl+C 信号，应用退出");
+        std::process::exit(0);
+    }).expect("Failed to set Ctrl+C handler");
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
