@@ -23,6 +23,7 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
+logs/
 
 # Tauri
 .superpowers/
@@ -30,3 +31,16 @@ src-tauri/gen/
 
 # Cache
 .cache/
+
+# Test coverage
+coverage/
+
+# TypeScript
+*.tsbuildinfo
+
+# Package locks (keep package-lock.json for reproducibility)
+# package-lock.json
+
+# Claude Fleet specific
+.claude/
+.claude-fleet/events/
