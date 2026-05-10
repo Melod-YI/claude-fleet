@@ -48,8 +48,13 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build Tauri application
-        run: npm run tauri build -- --bundles none
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build Tauri application (exe only)
+        run: |
+          cd src-tauri
+          cargo build --release
 
       - name: Get version from tag
         id: version
