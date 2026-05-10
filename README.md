@@ -8,17 +8,15 @@
 
 - **实时监控**: 监控运行中的 Claude Code session 状态
   - 显示 session 状态（busy/idle/waiting）
-  - 等待输入时发送声音和桌面通知
-- **一键跳转**: 快速切换到对应的终端窗口（Windows Terminal、WezTerm、cmd、PowerShell）
+- **一键跳转**: 快速切换到对应的终端窗口（WezTerm、cmd、PowerShell）
 - **历史管理**: 收藏、搜索、恢复历史 session
   - 搜索支持名称、路径、对话内容
   - 支持收藏过滤和时间筛选
-  - 目录视图（按路径树状展开）
 - **新建 session**: 选择工作目录和终端类型，启动新的 Claude Code
 
 ## 安装
 
-下载最新的安装包: [Releases](https://github.com/xxx/claude-fleet/releases)
+下载最新的安装包: [Releases](https://github.com/Melod-YI/claude-fleet/releases)
 
 - Windows: `.msi` 或 `-setup.exe` 安装包
 
@@ -26,9 +24,7 @@
 
 ### 查看运行中的 session
 
-打开应用，默认显示"运行中" Tab，可以看到所有正在运行的 Claude Code session。
-
-当 session 进入"等待输入"状态时，应用会发送声音和桌面通知提醒。
+打开应用，默认显示"运行中" Tab，可以看到所有正在运行的 Claude Code session 及其当前状态。
 
 ### 管理历史 session
 
@@ -36,13 +32,12 @@
 - 左侧列表显示收藏和历史 session
 - 支持搜索（名称、路径、对话内容）
 - 支持收藏过滤和时间筛选
-- 支持目录视图（按路径树状展开）
 
 ### 新建 session
 
 点击 "+" 按钮，选择工作目录和终端类型，启动新的 Claude Code。
 
-### 恳复 session
+### 恢复 session
 
 点击"恢复"按钮，自动打开新终端窗口并执行恢复命令。
 
