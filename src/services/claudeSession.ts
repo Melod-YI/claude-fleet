@@ -21,7 +21,7 @@ export async function listRunningSessions(): Promise<RunningSession[]> {
  */
 export async function listSessions(): Promise<ClaudeSession[]> {
   try {
-    const sessions = await invoke<ClaudeSession[]>('list_sessions')
+    const sessions = await invoke<ClaudeSession[]>('refresh_sessions')
     return sessions
   } catch (error) {
     console.error('获取 session 列表失败:', error)

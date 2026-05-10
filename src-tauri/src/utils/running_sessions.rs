@@ -124,14 +124,6 @@ pub fn resolve_session_name(content: &SessionFileContent) -> String {
     folder_name
 }
 
-/// 从文件名解析 PID："33804.json" -> 33804
-pub fn parse_pid_from_filename(filename: &str) -> Result<u32, String> {
-    filename
-        .strip_suffix(".json")
-        .and_then(|s| s.parse::<u32>().ok())
-        .ok_or_else(|| format!("无法从文件名解析 PID: {}", filename))
-}
-
 /// 从文件内容添加 session 到运行中列表
 pub fn add_running_session_from_file(content: &SessionFileContent) -> Result<(), String> {
     info!("[add_running_session_from_file] 开始添加: pid={}, sessionId={}", content.pid, content.session_id);

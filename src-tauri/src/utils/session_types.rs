@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 /// Session metadata aligned with cc-switch
 #[derive(Debug, Clone, Serialize)]
@@ -30,21 +30,4 @@ pub struct SessionMessage {
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ts: Option<i64>,
-}
-
-/// Running session metadata (kept for Running Tab)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RunningSessionMetadata {
-    pub pid: u32,
-    #[serde(rename = "sessionId")]
-    pub session_id: String,
-    pub cwd: String,
-    #[serde(rename = "startedAt")]
-    pub started_at: u64,
-    pub kind: String,
-    pub entrypoint: String,
-    #[serde(default)]
-    pub status: String,
-    #[serde(rename = "updatedAt", default)]
-    pub updated_at: Option<u64>,
 }

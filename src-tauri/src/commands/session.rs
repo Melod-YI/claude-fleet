@@ -11,23 +11,6 @@ use crate::utils::running_sessions::{
 };
 use tracing::{info, debug, error};
 
-/// 获取所有 session 列表（用于管理 Tab）
-#[tauri::command]
-pub fn list_sessions() -> Result<Vec<ClaudeSession>, String> {
-    info!("[list_sessions] 开始获取 session 列表");
-    let result = get_all_sessions();
-    match result {
-        Ok(sessions) => {
-            info!("[list_sessions] 完成，返回 {} 个 session", sessions.len());
-            Ok(sessions)
-        }
-        Err(e) => {
-            error!("[list_sessions] 失败: {}", e);
-            Err(e)
-        }
-    }
-}
-
 /// 初始化运行中 session 列表（应用启动时调用）
 #[tauri::command]
 pub fn init_running() -> Result<Vec<RunningSession>, String> {
