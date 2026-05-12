@@ -4,7 +4,7 @@ import { StatusBadge } from "./StatusBadge"
 import { Button } from "@/components/ui/button"
 import { formatRelativeTime, formatRelativeTimeFromTimestamp } from "@/utils"
 import { jumpToTerminal } from "@/services"
-import { Star } from "lucide-react"
+import { Star, Folder, Clock } from "lucide-react"
 import type { RunningSession } from "@/hooks/useRunningSessions"
 
 interface SessionCardProps {
@@ -86,9 +86,10 @@ export function SessionCard({ session, onJumpToTerminal, onToggleFavorite }: Ses
 interface SessionCardNewProps {
   session: RunningSession
   onJumpToTerminal: (session: RunningSession) => void
+  compact?: boolean // 精简模式，默认 true
 }
 
-export function SessionCardNew({ session, onJumpToTerminal }: SessionCardNewProps) {
+export function SessionCardNew({ session, onJumpToTerminal, compact = true }: SessionCardNewProps) {
   // idle 和 waiting 都是等待输入状态
   const isWaitingInput = session.status === "idle" || session.status === "waiting"
 
@@ -107,13 +108,56 @@ export function SessionCardNew({ session, onJumpToTerminal }: SessionCardNewProp
           <h3 className="font-semibold text-gray-900 truncate">{session.name}</h3>
           <StatusBadge status={session.status} />
         </div>
-        <p className="text-sm text-gray-600 truncate">{session.cwd}</p>
-        <div className="text-xs text-gray-500 mt-1 flex flex-wrap items-center gap-x-1">
-          <span>上次活动: {formatRelativeTimeFromTimestamp(session.updated_at)}</span>
+
+        {/* 最后用户输入 - 单行卡片（详细模式下显示） */}
+        {!compact && session.last_user_input && (
+          <div className="mt-2 px-2 py-1 bg-blue-50 rounded-md border border-blue-100 flex items-center gap-2">
+            <span className="text-xs font-medium text-blue-600 shrink-0">最后输入:</span>
+            <span
+              className="text-sm text-gray-700 truncate"
+              title={session.last_user_input}
+            >
+              {session.last_user_input}
+            </span>
+          </div>
+        )}
+
+        {/* away_summary 展示 - 单行卡片（详细模式下显示） */}
+        {!compact && isWaitingInput && session.away_summary && (
+          <div className="mt-2 px-2 py-1 bg-violet-50 rounded-md border border-violet-100 flex items-center gap-2">
+            <span className="text-xs font-medium text-violet-600 shrink-0">最近进展:</span>
+            {session.away_summary_at && (
+              <span className="text-xs text-violet-400 shrink-0">
+                {formatRelativeTimeFromTimestamp(session.away_summary_at)}
+              </span>
+            )}
+            <span
+              className="text-sm text-gray-700 truncate"
+              title={session.away_summary}
+            >
+              {session.away_summary}
+            </span>
+          </div>
+        )}
+
+        {/* 元信息行 */}
+        <div className="text-xs text-gray-500 mt-2 flex flex-wrap items-center gap-x-2">
+          <span
+            className="flex items-center gap-1 truncate max-w-[200px]"
+            title={session.cwd}
+          >
+            <Folder className="w-3 h-3 text-gray-400 shrink-0" />
+            {session.cwd.split(/[\\/]/).filter(Boolean).pop() || session.cwd}
+          </span>
+          <span className="text-gray-300">|</span>
+          <span className="flex items-center gap-1">
+            <Clock className="w-3 h-3 text-gray-400" />
+            {formatRelativeTimeFromTimestamp(session.updated_at)}
+          </span>
           <span className="text-gray-300">|</span>
           <span>PID: {session.pid}</span>
           <span className="text-gray-300">|</span>
-          <span>ID: {session.session_id}</span>
+          <span>Session ID: {session.session_id}</span>
         </div>
       </div>
 

@@ -33,3 +33,18 @@ Session 启动时的名称功能存在问题，当前不支持对 session 进行
 当前仅支持和验证过 64 位 Windows 环境。开发团队没有 Linux 和 Mac 环境，无法验证其他平台的兼容性。
 
 **解决方案**：在项目定位调整之前，不需要考虑除 64 位 Windows 以外的运行环境。
+
+---
+
+## 4. 后台运行 Shell 时状态不变为等待输入
+
+**状态**：Claude Code 行为限制
+
+当 Claude Code 有运行中的 shell 命令时（即使该 shell 处于后台运行状态），Claude Code 的状态不会变为 `idle` 或 `waiting`。这导致：
+
+- Claude Fleet 无法正确识别该 session 为"等待输入"状态
+- away_summary 摘要功能在此情况下不会触发显示
+
+**原因**：Claude Code 的状态判定机制将后台运行的 shell 视为活动状态。
+
+**解决方案**：暂无。这是 Claude Code 的内部行为，Claude Fleet 无法干预。

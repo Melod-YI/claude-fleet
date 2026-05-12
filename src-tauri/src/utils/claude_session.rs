@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::fs;
 use std::io::{BufRead, BufReader};
 use serde_json::Value;
-use tracing::info;
+use tracing::{info, debug, warn};
 
 use super::session_types::{SessionMeta, SessionMessage};
 use super::session_utils::{
@@ -311,4 +311,163 @@ pub fn get_session_messages(session_id: &str) -> Result<Vec<SessionMessage>, Str
     let messages = load_messages(Path::new(path))?;
     info!("[get_session_messages] Loaded {} messages", messages.len());
     Ok(messages)
+}
+
+/// Encode a path to project directory name format
+/// e.g., C:\workspace\abc -> C--workspace-abc
+pub fn encode_project_path(path: &str) -> String {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    // Replace : \ / with dashes
+    // C:\workspace\abc -> C--workspace-abc
+    let result = trimmed
+        .replace(':', "-")
+        .replace('\\', "-")
+        .replace('/', "-");
+
+    debug!("[encode_project_path] {} -> {}", path, result);
+    result
+}
+
+/// Find jsonl file path for a session
+/// Uses session_id and cwd to construct the path
+pub fn find_session_jsonl_path(session_id: &str, cwd: &str) -> Option<PathBuf> {
+    let projects_dir = get_projects_dir();
+    let project_name = encode_project_path(cwd);
+    let jsonl_path = projects_dir.join(project_name).join(format!("{}.jsonl", session_id));
+
+    if jsonl_path.exists() {
+        debug!("[find_session_jsonl_path] Found: {}", jsonl_path.display());
+        Some(jsonl_path)
+    } else {
+        warn!("[find_session_jsonl_path] Not found: {}", jsonl_path.display());
+        None
+    }
+}
+
+/// Extract away_summary from a session's jsonl file
+/// Returns (summary_content, timestamp_ms) if valid away_summary exists at the end
+///
+/// Validation logic (reverse scan from file end):
+/// 1. First encounter away_summary -> valid, return content
+/// 2. First encounter user/assistant -> invalid, return None
+/// 3. Skip non-message types: turn_duration, last-prompt, permission-mode, etc.
+pub fn extract_away_summary(session_id: &str, cwd: &str) -> Option<(String, u64)> {
+    info!("[extract_away_summary] Extracting for session {} from cwd {}", session_id, cwd);
+
+    let jsonl_path = find_session_jsonl_path(session_id, cwd)?;
+
+    // Read tail 30 lines
+    let (_, tail) = read_head_tail_lines(&jsonl_path, 0, 30).ok()?;
+    if tail.is_empty() {
+        debug!("[extract_away_summary] Empty tail");
+        return None;
+    }
+
+    // Types that should be skipped during reverse scan
+    // These don't count as "messages" for position validation
+    let skip_types = [
+        "turn_duration", "last-prompt", "permission-mode",
+        "file-history-snapshot", "custom-title",
+    ];
+
+    // Reverse scan the tail lines
+    for line in tail.iter().rev() {
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let value: Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        let line_type = value.get("type").and_then(Value::as_str).unwrap_or("");
+
+        // Check for away_summary
+        if line_type == "system" {
+            let subtype = value.get("subtype").and_then(Value::as_str).unwrap_or("");
+
+            if subtype == "away_summary" {
+                let content = value.get("content")
+                    .and_then(Value::as_str)
+                    .map(|s| s.to_string())?;
+
+                let timestamp = value.get("timestamp")
+                    .and_then(parse_timestamp_to_ms)
+                    .map(|ts| ts as u64)?;
+
+                info!("[extract_away_summary] Found valid away_summary for session {}", session_id);
+                return Some((content, timestamp));
+            }
+
+            // Skip other system subtypes
+            if skip_types.contains(&subtype) {
+                debug!("[extract_away_summary] Skipping system subtype: {}", subtype);
+                continue;
+            }
+        }
+
+        // Skip non-message types
+        if skip_types.contains(&line_type) {
+            debug!("[extract_away_summary] Skipping type: {}", line_type);
+            continue;
+        }
+
+        // If we hit a user or assistant message, away_summary is not at the end
+        if line_type == "user" || line_type == "assistant" {
+            debug!("[extract_away_summary] Found {} before away_summary, invalid", line_type);
+            return None;
+        }
+    }
+
+    debug!("[extract_away_summary] No away_summary found in tail");
+    None
+}
+
+/// Extract last user input from a session's jsonl file
+/// Reads from "type": "last-prompt" entry's "lastPrompt" field
+/// Finds the last (most recent) last-prompt entry by reverse scanning
+pub fn extract_last_user_input(session_id: &str, cwd: &str) -> Option<String> {
+    debug!("[extract_last_user_input] Extracting for session {} from cwd {}", session_id, cwd);
+
+    let jsonl_path = find_session_jsonl_path(session_id, cwd)?;
+
+    // Read tail 50 lines to find last-prompt (may not be at very end)
+    let (_, tail) = read_head_tail_lines(&jsonl_path, 0, 50).ok()?;
+    if tail.is_empty() {
+        debug!("[extract_last_user_input] Empty tail");
+        return None;
+    }
+
+    // Reverse scan to find the LAST last-prompt entry (first one we encounter in reverse)
+    for line in tail.iter().rev() {
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let value: Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        let line_type = value.get("type").and_then(Value::as_str).unwrap_or("");
+
+        if line_type == "last-prompt" {
+            let last_prompt = value.get("lastPrompt")
+                .and_then(Value::as_str)
+                .map(|s| s.to_string());
+
+            if let Some(prompt) = last_prompt {
+                debug!("[extract_last_user_input] Found: {}", prompt);
+                return Some(prompt);
+            }
+        }
+    }
+
+    debug!("[extract_last_user_input] No last-prompt found in tail");
+    None
 }

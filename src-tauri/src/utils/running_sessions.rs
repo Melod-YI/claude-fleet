@@ -12,6 +12,7 @@ use tracing::{info, debug, warn, error};
 use std::time::Instant;
 use crate::utils::claude_data::is_claude_process_running;
 use crate::utils::window_manager::get_window_title_by_pid_chain;
+use crate::utils::claude_session::{extract_away_summary, extract_last_user_input};
 
 /// Session 运行状态（对应 Claude JSON 文件中的三种状态）
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -31,10 +32,20 @@ pub struct RunningSession {
     pub cwd: String,
     pub name: String,
     pub updated_at: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub away_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub away_summary_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_user_input: Option<String>,
 }
 
 /// 全局运行中 Session 状态（PID 作为 key，因为 sessionId 会因 resume 变化）
 pub static RUNNING_SESSIONS: Lazy<Mutex<HashMap<u32, RunningSession>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// 缓存 away_summary 结果（session_id -> (summary, timestamp, checked_at)）
+static AWAY_SUMMARY_CACHE: Lazy<Mutex<HashMap<String, (Option<String>, Option<u64>, u64)>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// 轮询运行状态
@@ -168,6 +179,9 @@ pub fn add_running_session_from_file(content: &SessionFileContent) -> Result<(),
         cwd: content.cwd.clone(),
         name,
         updated_at: content.updated_at.unwrap_or(content.started_at),
+        away_summary: None,
+        away_summary_at: None,
+        last_user_input: None,
     };
 
     info!("[add_running_session_from_file] 创建 RunningSession: id={}, pid={}, status={}, cwd={}",
@@ -201,6 +215,10 @@ pub fn update_session_status_from_file(content: &SessionFileContent) {
             info!("[update_session_status_from_file] sessionId 变化: {} -> {}",
                   session.session_id, content.session_id);
             session.session_id = content.session_id.clone();
+            // sessionId 变化意味着新的 session，清空旧的 away_summary 和缓存
+            session.away_summary = None;
+            session.away_summary_at = None;
+            AWAY_SUMMARY_CACHE.lock().unwrap().remove(&session.session_id);
         }
 
         let new_status = match content.status.as_str() {
@@ -335,6 +353,10 @@ pub fn init_running_sessions() -> Result<Vec<RunningSession>, String> {
     info!("[init_running_sessions] 统计: 总文件={}, json={}, 解析失败={}, 进程已退出={}, 成功添加={}",
           total_files, json_files, parse_failed, process_dead, added_count);
 
+    // 启动时立即扫描所有 session 的 jsonl
+    info!("[init_running_sessions] 开始扫描 jsonl 文件获取 away_summary 和 last_user_input");
+    scan_away_summaries();
+
     let result = get_running_sessions();
     let elapsed = start.elapsed();
     info!("[init_running_sessions] 完成，运行中 session 数量: {}，耗时: {}ms", result.len(), elapsed.as_millis());
@@ -404,6 +426,9 @@ pub fn start_polling(app_handle: tauri::AppHandle) {
                 RUNNING_SESSIONS.lock().unwrap().remove(pid);
             }
 
+            // 扫描 idle/waiting session 的 away_summary
+            scan_away_summaries();
+
             // 通知前端
             let sessions = get_running_sessions();
 
@@ -428,4 +453,139 @@ pub fn stop_polling() {
     info!("[stop_polling] 开始停止轮询服务");
     POLLING_RUNNING.store(false, Ordering::SeqCst);
     info!("[stop_polling] 完成，运行标志已设置为 false");
+}
+
+/// 强制扫描单个 session 的 jsonl（忽略缓存）
+/// 用于启动时和状态变化时的实时扫描
+pub fn scan_session_jsonl_force(pid: u32) {
+    debug!("[scan_session_jsonl_force] 强制扫描 session pid={}", pid);
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    // 获取 session 信息
+    let (session_id, cwd) = {
+        let sessions = RUNNING_SESSIONS.lock().unwrap();
+        match sessions.get(&pid) {
+            Some(s) => (s.session_id.clone(), s.cwd.clone()),
+            None => {
+                warn!("[scan_session_jsonl_force] 未找到 pid={} 的 session", pid);
+                return;
+            }
+        }
+    };
+
+    // 扫描 away_summary 和 last_user_input
+    let away_result = extract_away_summary(&session_id, &cwd);
+    let user_input = extract_last_user_input(&session_id, &cwd);
+
+    // 更新缓存和 RunningSession
+    {
+        let mut cache = AWAY_SUMMARY_CACHE.lock().unwrap();
+        let mut sessions = RUNNING_SESSIONS.lock().unwrap();
+
+        if let Some(session) = sessions.get_mut(&pid) {
+            match &away_result {
+                Some((content, timestamp)) => {
+                    info!("[scan_session_jsonl_force] 发现 away_summary: session={}, length={}", session_id, content.len());
+                    session.away_summary = Some(content.clone());
+                    session.away_summary_at = Some(timestamp.clone());
+                    cache.insert(session_id.clone(), (Some(content.clone()), Some(timestamp.clone()), now));
+                }
+                None => {
+                    debug!("[scan_session_jsonl_force] 无 away_summary: session={}", session_id);
+                    session.away_summary = None;
+                    session.away_summary_at = None;
+                    cache.insert(session_id.clone(), (None, None, now));
+                }
+            }
+
+            // 更新 last_user_input
+            if let Some(input) = user_input {
+                debug!("[scan_session_jsonl_force] 更新 last_user_input: session={}", session_id);
+                session.last_user_input = Some(input);
+            } else {
+                session.last_user_input = None;
+            }
+        }
+    }
+}
+
+/// 扫描所有 session 的 away_summary（带缓存）
+/// 用于定时轮询
+pub fn scan_away_summaries() {
+    debug!("[scan_away_summaries] 开始扫描");
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    // 获取所有 session 列表（不管状态）
+    let sessions_to_scan: Vec<(u32, String, String)> = RUNNING_SESSIONS
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(pid, session)| (pid.clone(), session.session_id.clone(), session.cwd.clone()))
+        .collect();
+
+    debug!("[scan_away_summaries] 需要扫描 {} 个 session", sessions_to_scan.len());
+
+    for (pid, session_id, cwd) in sessions_to_scan {
+        // 检查缓存是否有效（最近 60 秒内已扫描）
+        let should_scan = {
+            let cache = AWAY_SUMMARY_CACHE.lock().unwrap();
+            match cache.get(&session_id) {
+                Some((_, _, checked_at)) => {
+                    // 如果 60 秒内已扫描，跳过
+                    now - checked_at > 60
+                }
+                None => true,
+            }
+        };
+
+        if !should_scan {
+            debug!("[scan_away_summaries] 跳过 {} (缓存有效)", session_id);
+            continue;
+        }
+
+        // 扫描 away_summary 和 last_user_input
+        let away_result = extract_away_summary(&session_id, &cwd);
+        let user_input = extract_last_user_input(&session_id, &cwd);
+
+        // 更新缓存和 RunningSession
+        {
+            let mut cache = AWAY_SUMMARY_CACHE.lock().unwrap();
+            let mut sessions = RUNNING_SESSIONS.lock().unwrap();
+
+            if let Some(session) = sessions.get_mut(&pid) {
+                match &away_result {
+                    Some((content, timestamp)) => {
+                        info!("[scan_away_summaries] 发现 away_summary: session={}, length={}", session_id, content.len());
+                        session.away_summary = Some(content.clone());
+                        session.away_summary_at = Some(timestamp.clone());
+                        cache.insert(session_id.clone(), (Some(content.clone()), Some(timestamp.clone()), now));
+                    }
+                    None => {
+                        debug!("[scan_away_summaries] 无 away_summary: session={}", session_id);
+                        session.away_summary = None;
+                        session.away_summary_at = None;
+                        cache.insert(session_id.clone(), (None, None, now));
+                    }
+                }
+
+                // 更新 last_user_input
+                if let Some(input) = user_input {
+                    debug!("[scan_away_summaries] 更新 last_user_input: session={}", session_id);
+                    session.last_user_input = Some(input);
+                } else {
+                    session.last_user_input = None;
+                }
+            }
+        }
+    }
+
+    debug!("[scan_away_summaries] 完成");
 }

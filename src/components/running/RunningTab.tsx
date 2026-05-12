@@ -8,6 +8,7 @@ import { useRunningSessions, RunningSession } from "@/hooks/useRunningSessions"
 import { useSettingsStore } from "@/stores"
 import { jumpToTerminal } from "@/services"
 import { RefreshCw, Plus } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
 import { NewSessionDialog } from "@/components/dialogs/NewSessionDialog"
 
 export function RunningTab() {
@@ -20,6 +21,7 @@ export function RunningTab() {
   const [refreshing, setRefreshing] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [newSessionOpen, setNewSessionOpen] = useState(false)
+  const [compact, setCompact] = useState(true) // 默认精简模式
 
   // 获取排序后的常用路径
   const sortedFavoritePaths = useMemo(() => {
@@ -100,15 +102,25 @@ export function RunningTab() {
       </div>
 
       {/* 状态统计 */}
-      <div className="flex items-center gap-4 px-4 py-2 border-b text-sm">
-        <span className="text-gray-600">
-          共 {filteredSessions.length} 个运行中的 session
-        </span>
-        {waitingCount > 0 && (
-          <span className="text-amber-600 font-medium">
-            {waitingCount} 个等待输入
+      <div className="flex items-center justify-between gap-4 px-4 py-2 border-b text-sm">
+        <div className="flex items-center gap-4">
+          <span className="text-gray-600">
+            共 {filteredSessions.length} 个运行中的 session
           </span>
-        )}
+          {waitingCount > 0 && (
+            <span className="text-amber-600 font-medium">
+              {waitingCount} 个等待输入
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">精简</span>
+          <Switch
+            checked={!compact}
+            onCheckedChange={(checked) => setCompact(!checked)}
+          />
+          <span className="text-xs text-gray-500">详细</span>
+        </div>
       </div>
 
       {/* Session 列表 */}
@@ -134,6 +146,7 @@ export function RunningTab() {
                 key={session.session_id}
                 session={session}
                 onJumpToTerminal={handleJumpToTerminal}
+                compact={compact}
               />
             ))}
           </div>

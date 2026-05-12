@@ -12,6 +12,9 @@ export interface RunningSession {
   cwd: string
   name: string
   updated_at: number
+  away_summary?: string
+  away_summary_at?: number
+  last_user_input?: string
 }
 
 export function useRunningSessions() {

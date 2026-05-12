@@ -14,6 +14,7 @@ use crate::utils::running_sessions::{
     update_session_status_from_file,
     remove_running_session_by_pid,
     get_running_sessions,
+    scan_session_jsonl_force,
     SessionStatus,
     SessionFileContent,
 };
@@ -246,6 +247,9 @@ fn handle_session_create(path: &PathBuf, app_handle: &tauri::AppHandle) {
 
     info!("[handle_session_create] session 添加成功: pid={}, sessionId={}", session.pid, session.session_id);
 
+    // 立即扫描 jsonl 获取 away_summary 和 last_user_input
+    scan_session_jsonl_force(session.pid);
+
     // 发送状态变化事件
     emit_sessions_changed(app_handle);
 
@@ -282,6 +286,9 @@ fn handle_session_modify(path: &PathBuf, app_handle: &tauri::AppHandle) {
 
     info!("[handle_session_modify] session 状态更新: pid={}, sessionId={}, status={}",
           session.pid, session.session_id, session.status);
+
+    // 立即扫描 jsonl 获取 away_summary 和 last_user_input
+    scan_session_jsonl_force(session.pid);
 
     // 发送状态变化事件
     emit_sessions_changed(app_handle);
