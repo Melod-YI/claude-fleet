@@ -8,16 +8,17 @@
 
 - **实时监控**: 监控运行中的 Claude Code session 状态
   - 显示 session 状态（busy/idle/waiting）
+  - 支持精简/详细模式切换
+  - 显示最后输入和最近进展摘要
 - **一键跳转**: 快速切换到对应的终端窗口（WezTerm、cmd、PowerShell）
 
 - **新建 session**: 选择工作目录和终端类型，启动新的 Claude Code
-<img width="1500" height="1037" alt="image" src="https://github.com/user-attachments/assets/c934ca82-8686-4ada-945a-01151a63c025" />
+![新建 Session](docs/images/screenshot-new-session.png)
 
 - **历史管理**: 收藏、搜索、恢复历史 session
   - 搜索支持名称、路径、对话内容
   - 支持收藏过滤和时间筛选
-<img width="1500" height="1037" alt="image" src="https://github.com/user-attachments/assets/6d529bdf-2770-4426-884f-26f54617a76c" />
-
+![历史管理](docs/images/screenshot-history.png)
 
 
 ## 安装
@@ -25,21 +26,24 @@
 下载最新的安装包: [Releases](https://github.com/Melod-YI/claude-fleet/releases)
 
 ## 使用
+
 ### 使用说明
-1. 关闭windows terminal。这个工具在跳转方面有困难
-<img width="1481" height="760" alt="image" src="https://github.com/user-attachments/assets/dfcefd61-e10c-4bc2-800c-e0de989b01ae" />
-<img width="1481" height="760" alt="image" src="https://github.com/user-attachments/assets/ec29ba7f-2009-41fd-a7b3-6f88a592e177" />
-目前遇到的困难是，我可以获取到claude进程的pid，根据pid的父pid链找到窗口。但是windows terminal是个单pid多tab、多窗口的程序，会在找到pid后无法准确找到窗口。如果不关闭windows terminal，通过页面启动claude code、显示运行中的claude code状态等能力可用，但是跳转能力不可用。
 
-2. 在通过 Claude Fleet 的页面启动、恢复claude code前，先通过右上角设置按钮选择合适的终端。 
-<img width="1500" height="1000" alt="image" src="https://github.com/user-attachments/assets/91e1b5fb-9992-4e85-9dfa-11005bbd77dd" />
+1. 关闭 windows terminal。这个工具在跳转方面有困难
+![终端问题](docs/images/screenshot-terminal-1.png)
+![终端问题](docs/images/screenshot-terminal-2.png)
 
-对于习惯于windows terminal黑色背景的可以使用cmd，但是
+目前遇到的困难是，我可以获取到 claude 进程的 pid，根据 pid 的父 pid 链找到窗口。但是 windows terminal 是个单 pid 多 tab、多窗口的程序，会在找到 pid 后无法准确找到窗口。如果不关闭 windows terminal，通过页面启动 claude code、显示运行中的 claude code 状态等能力可用，但是跳转能力不可用。
 
-3. 调整终端的字体，cmd和powershell的字体都需要调整下（选哪个就调整哪个），否则部分字符会乱码。
-打开一个cmd（或powershell）后，右键顶部的窗口栏，选择"默认值"。在字体处选择 "Cascadia Mono"（windows terminal下的默认字体），这样在显示claude code 的logo的时候，不会出现乱码。（当前窗口可以关掉重开，或者右键顶部的窗口栏后选择"属性"进行修改）
+2. 在通过 Claude Fleet 的页面启动、恢复 claude code 前，先通过右上角设置按钮选择合适的终端。
+![设置终端](docs/images/screenshot-settings.png)
 
-<img width="570" height="729" alt="image" src="https://github.com/user-attachments/assets/feca1054-dbee-450b-bcb5-46281708a158" />
+对于习惯于 windows terminal 黑色背景的可以使用 cmd，但是
+
+3. 调整终端的字体，cmd 和 powershell 的字体都需要调整下（选哪个就调整哪个），否则部分字符会乱码。
+打开一个 cmd（或 powershell）后，右键顶部的窗口栏，选择"默认值"。在字体处选择 "Cascadia Mono"（windows terminal 下的默认字体），这样在显示 claude code 的 logo 的时候，不会出现乱码。（当前窗口可以关掉重开，或者右键顶部的窗口栏后选择"属性"进行修改）
+
+![字体设置](docs/images/screenshot-font.png)
 
 ### 查看运行中的 session
 
