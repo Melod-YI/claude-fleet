@@ -19,7 +19,21 @@
 下载最新的安装包: [Releases](https://github.com/Melod-YI/claude-fleet/releases)
 
 ## 使用
+### 使用说明
+1. 关闭windows terminal。这个工具在跳转方面有困难
+<img width="1481" height="760" alt="image" src="https://github.com/user-attachments/assets/dfcefd61-e10c-4bc2-800c-e0de989b01ae" />
+<img width="1481" height="760" alt="image" src="https://github.com/user-attachments/assets/ec29ba7f-2009-41fd-a7b3-6f88a592e177" />
+目前遇到的困难是，我可以获取到claude进程的pid，根据pid的父pid链找到窗口。但是windows terminal是个单pid多tab、多窗口的程序，会在找到pid后无法准确找到窗口。如果不关闭windows terminal，通过页面启动claude code、显示运行中的claude code状态等能力可用，但是跳转能力不可用。
 
+2. 在通过 Claude Fleet 的页面启动、恢复claude code前，先通过右上角设置按钮选择合适的终端。 
+<img width="1500" height="1000" alt="image" src="https://github.com/user-attachments/assets/91e1b5fb-9992-4e85-9dfa-11005bbd77dd" />
+
+对于习惯于windows terminal黑色背景的可以使用cmd，但是
+
+3. 调整终端的字体，cmd和powershell的字体都需要调整下（选哪个就调整哪个），否则部分字符会乱码。
+打开一个cmd（或powershell）后，右键顶部的窗口栏，选择"默认值"。在字体处选择 "Cascadia Mono"（windows terminal下的默认字体），这样在显示claude code 的logo的时候，不会出现乱码。（当前窗口可以关掉重开，或者右键顶部的窗口栏后选择"属性"进行修改）
+
+<img width="570" height="729" alt="image" src="https://github.com/user-attachments/assets/feca1054-dbee-450b-bcb5-46281708a158" />
 ### 查看运行中的 session
 
 打开应用，默认显示"运行中" Tab，可以看到所有正在运行的 Claude Code session 及其当前状态。
