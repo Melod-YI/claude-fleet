@@ -34,6 +34,7 @@
 打开一个cmd（或powershell）后，右键顶部的窗口栏，选择"默认值"。在字体处选择 "Cascadia Mono"（windows terminal下的默认字体），这样在显示claude code 的logo的时候，不会出现乱码。（当前窗口可以关掉重开，或者右键顶部的窗口栏后选择"属性"进行修改）
 
 <img width="570" height="729" alt="image" src="https://github.com/user-attachments/assets/feca1054-dbee-450b-bcb5-46281708a158" />
+
 ### 查看运行中的 session
 
 打开应用，默认显示"运行中" Tab，可以看到所有正在运行的 Claude Code session 及其当前状态。
