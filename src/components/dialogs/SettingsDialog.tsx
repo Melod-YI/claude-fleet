@@ -1,5 +1,7 @@
 import { useSettingsStore } from '@/stores/settingsStore'
 import type { TerminalType } from '@/types'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
 import {
   Dialog,
   DialogContent,
@@ -27,7 +29,14 @@ const TERMINAL_OPTIONS: { value: TerminalType; label: string }[] = [
 ]
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
-  const { terminalType, setTerminalType } = useSettingsStore()
+  const {
+    terminalType,
+    setTerminalType,
+    notificationSound,
+    setNotificationSound,
+    notificationDesktop,
+    setNotificationDesktop,
+  } = useSettingsStore()
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -58,6 +67,39 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             <p className="text-xs text-muted-foreground">
               选择恢复 session 时使用的终端
             </p>
+          </div>
+
+          {/* 通知设置 */}
+          <div className="space-y-3 border-t pt-4">
+            <label className="text-sm font-medium">通知设置</label>
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="notification-sound">提示音</Label>
+                <p className="text-xs text-muted-foreground">
+                  Session 进入等待状态时播放提示音
+                </p>
+              </div>
+              <Switch
+                id="notification-sound"
+                checked={notificationSound}
+                onCheckedChange={setNotificationSound}
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="notification-desktop">桌面通知</Label>
+                <p className="text-xs text-muted-foreground">
+                  发送 Windows 系统通知
+                </p>
+              </div>
+              <Switch
+                id="notification-desktop"
+                checked={notificationDesktop}
+                onCheckedChange={setNotificationDesktop}
+              />
+            </div>
           </div>
         </div>
 

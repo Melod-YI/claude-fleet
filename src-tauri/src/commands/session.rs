@@ -241,13 +241,3 @@ pub fn stop_hooks() -> Result<(), String> {
     crate::utils::sessions_watcher::stop_sessions_watcher();
     Ok(())
 }
-
-/// 发送桌面通知
-#[tauri::command]
-pub fn send_notification(title: String, body: String) -> Result<(), String> {
-    info!("[send_notification] 发送通知: 标题=\"{}\", 内容=\"{}\"", title, body);
-    // 这里可以集成系统通知
-    // 目前只是打印日志，前端会使用 Web Notifications API
-    debug!("[send_notification] 通知已记录（前端将使用 Web Notifications API）");
-    Ok(())
-}

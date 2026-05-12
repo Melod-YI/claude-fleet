@@ -13,7 +13,6 @@ use commands::session::{
     stop_sessions_watcher,
     start_hooks,
     stop_hooks,
-    send_notification,
     delete_session_cmd,
 };
 use commands::session_commands::{
@@ -83,6 +82,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(setup)
         .invoke_handler(tauri::generate_handler![
             // New optimized session commands for management tab
@@ -102,7 +102,6 @@ pub fn run() {
             stop_sessions_watcher,
             start_hooks,
             stop_hooks,
-            send_notification,
             delete_session_cmd,
             // Terminal commands
             jump_to_terminal,
