@@ -9,7 +9,7 @@ use crate::utils::running_sessions::{
     stop_polling,
     RunningSession,
 };
-use tracing::{info, debug, error};
+use tracing::{info, error};
 
 /// 初始化运行中 session 列表（应用启动时调用）
 #[tauri::command]

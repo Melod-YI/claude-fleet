@@ -21,6 +21,7 @@ use commands::session_commands::{
     delete_session_optimized,
 };
 use commands::terminal::{jump_to_terminal, jump_to_terminal_by_pid, smart_jump_to_terminal, resume_in_terminal};
+use commands::sound::{get_available_sounds, get_sound_data};
 use tracing::{info, error};
 use std::time::Instant;
 
@@ -107,7 +108,10 @@ pub fn run() {
             jump_to_terminal,
             jump_to_terminal_by_pid,
             smart_jump_to_terminal,
-            resume_in_terminal
+            resume_in_terminal,
+            // Sound commands
+            get_available_sounds,
+            get_sound_data
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

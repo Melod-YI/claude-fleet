@@ -3,13 +3,10 @@ import {
   requestPermission,
   sendNotification as tauriSendNotification,
 } from '@tauri-apps/plugin-notification'
+import { getSoundData, BUILTIN_DEFAULT_ID } from './soundService'
 
-// 内嵌 base64 提示音（简短的"叮"声 - 约 0.5 秒的合成音效）
-// 这是一个有效的 WAV 格式音频，包含一个简单的正弦波提示音
-const NOTIFICATION_SOUND_BASE64 =
-  'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdH2Onp+dmZaRjo6OkZSYm56goaKjoqGgnpuYlZKQj4+QkpWYm56goaOjoqGgnpuYlZKQjo6OkZSYm52foKCgoJ+cmZWSkI6OjpGUl5ueoJ+fn56dmJWSkI6OjpGUl5udoKCfn56cmJaRjo6OkJOWl5udoJ+fnpyYlpCOjo6QkpWYm52fn5+enJiWkI6OjpCSlZibnJ6enpyYlpCOjo6QkpWYm5ydnZ2cmJaQjo6OkJKVmJucnZ2dnJiWkI6OjpCSlZibnJ2dnZyYlpCOjo6QkpWYm5ydnZ2cmJaQjo6OkJKVmJucnZ2dnJiWkI6OjpCSlZibnJ2dnZyYlpCOjo6QkpWYm5ydnZ2cmJaQjo6OkJKVmJucnZ2dnJiWkI6OjpCSlZibnJ2dnZyYlpCOjo6QkpWYm5ydnZ2cmJaQjo6OkJKVmJucnZ2cnJiWkI6OjpCSlZibnJydnZyYlpCOjo6QkpWYm5ycnZ2cmJaQjo6OkJKVmJucnJ2dnJiWkI6OjpCSlZibnJydnZyYlpCOjo6QkpWYm5ycnZ2cmJaQjo6OkJKVmJucnJ2dnJiWkI6OjpCSlZibnJydnZyYlpCOjo6QkpWYm5ycnZycmJaQjo6OkJKVmJucnJ2cnJiWkI6OjpCSlZibnJydnZyYlpCOjo6QkpWYm5ycnZ2cmJaQjo6OkJKVmJucnJ2dnJiWkI6OjpCSlZibnJydnZyYlpCOjo6QkpWYm5ycnZycmJaQjo6OkJKVmJucnJ2cnJiWkI6OjpCSlZibnJydnZyYlpCOjo6QkpWYm5ycnZ2cmJaQjo6OkJKVmJucnJ2dnJiWkI6OjpCSlZibnJydnZyYlpCOjo6QkpWYm5ycnZycmJaQjo6OkJKVmJucnJycmJaQjo6OkJKVmJiXl5aVlJKSi4uLi4uLjJCRlZaYmp2enp2amJaUkY=='
-
-// 预加载提示音对象
+// 音频状态
+let currentSoundFile: string | null = null
 let notificationSound: HTMLAudioElement | null = null
 
 export interface NotificationOptions {
@@ -17,34 +14,75 @@ export interface NotificationOptions {
   body: string
   sessionId?: string
   sound?: boolean
+  soundFile?: string  // 指定音频文件（空或 "builtin:default" 使用内置）
 }
 
 /**
- * 初始化音频对象
+ * 初始化音频（使用指定或默认音频）
  */
-function initAudio(): void {
-  if (!notificationSound) {
-    try {
-      notificationSound = new Audio(NOTIFICATION_SOUND_BASE64)
-      notificationSound.volume = 0.5
-      notificationSound.preload = 'auto'
-      console.log('[notificationService] 音频初始化成功')
-    } catch (e) {
-      console.error('[notificationService] 初始化音频失败:', e)
+async function initAudio(soundFile?: string): Promise<void> {
+  try {
+    // 确定使用哪个音频
+    // 空字符串视为内置默认
+    let targetFile = soundFile || currentSoundFile
+
+    if (!targetFile) {
+      targetFile = BUILTIN_DEFAULT_ID
     }
+
+    // 加载音频数据
+    const soundData = await getSoundData(targetFile)
+
+    // 创建或更新音频元素
+    notificationSound = new Audio(soundData)
+    notificationSound.volume = 0.5
+    notificationSound.preload = 'auto'
+
+    currentSoundFile = targetFile
+    console.log('[notificationService] 音频初始化成功:', targetFile)
+  } catch (e) {
+    console.error('[notificationService] 初始化音频失败:', e)
+    // 使用内置默认
+    const fallbackData = await getSoundData(BUILTIN_DEFAULT_ID)
+    notificationSound = new Audio(fallbackData)
+    notificationSound.volume = 0.5
   }
 }
 
 /**
- * 播放提示音
+ * 设置通知音频文件
  */
-export function playNotificationSound(): void {
-  initAudio()
+export async function setNotificationSoundFile(filename: string): Promise<boolean> {
+  try {
+    currentSoundFile = filename
+    await initAudio(filename)
+    return true
+  } catch (e) {
+    console.error('[notificationService] 设置音频失败:', e)
+    return false
+  }
+}
+
+/**
+ * 播放通知提示音
+ * @param soundFile 可选指定音频文件
+ */
+export async function playNotificationSound(soundFile?: string): Promise<void> {
+  // 如果指定了不同的音频文件，重新初始化
+  if (soundFile && soundFile !== currentSoundFile) {
+    await initAudio(soundFile)
+  } else if (!notificationSound) {
+    await initAudio()
+  }
+
   if (notificationSound) {
     notificationSound.currentTime = 0
-    notificationSound.play().catch((e) => {
+    try {
+      await notificationSound.play()
+      console.log('[notificationService] 提示音播放成功')
+    } catch (e) {
       console.warn('[notificationService] 播放提示音失败:', e)
-    })
+    }
   }
 }
 
@@ -82,7 +120,7 @@ export async function sendDesktopNotification(options: NotificationOptions): Pro
   // 播放提示音
   if (options.sound) {
     console.log('[notificationService] 播放提示音')
-    playNotificationSound()
+    await playNotificationSound(options.soundFile)
   }
 }
 
@@ -93,7 +131,7 @@ export async function initNotificationService(): Promise<void> {
   console.log('[notificationService] 开始初始化...')
 
   // 初始化音频
-  initAudio()
+  await initAudio()
 
   // 检查通知权限状态
   try {

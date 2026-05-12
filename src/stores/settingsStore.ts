@@ -11,6 +11,7 @@ interface SettingsState extends AppSettings {
   setDefaultTimeRange: (range: '3d' | '7d' | '30d' | 'all') => void
   setNotificationSound: (enabled: boolean) => void
   setNotificationDesktop: (enabled: boolean) => void
+  setNotificationSoundFile: (filename: string) => void
   setTheme: (theme: 'light' | 'dark' | 'system') => void
   setTerminalType: (type: TerminalType) => void
   // 获取排序后的常用路径
@@ -22,6 +23,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   defaultTimeRange: '30d',
   notificationSound: true,
   notificationDesktop: true,
+  notificationSoundFile: '',  // 空表示使用默认
   theme: 'system',
   terminalType: 'wezterm',
 }
@@ -138,6 +140,7 @@ export const useSettingsStore = create<SettingsState>()(
       setDefaultTimeRange: (range) => set({ defaultTimeRange: range }),
       setNotificationSound: (enabled) => set({ notificationSound: enabled }),
       setNotificationDesktop: (enabled) => set({ notificationDesktop: enabled }),
+      setNotificationSoundFile: (filename) => set({ notificationSoundFile: filename }),
       setTheme: (theme) => set({ theme }),
       setTerminalType: (type) => set({ terminalType: type }),
 

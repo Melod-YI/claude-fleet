@@ -10,8 +10,7 @@ interface WaitingInputEvent {
 }
 
 export function useNotification() {
-  const { notificationSound, notificationDesktop } = useSettingsStore()
-  const notifiedSessions = useRef<Set<string>>(new Set())
+  const { notificationSound, notificationDesktop, notificationSoundFile } = useSettingsStore()
   const unlistenRef = useRef<UnlistenFn | null>(null)
 
   // 发送通知
@@ -24,26 +23,22 @@ export function useNotification() {
         body: `Session "${sessionName || fallbackName}" 正在等待输入`,
         sessionId,
         sound: notificationSound,
+        soundFile: notificationSoundFile,
       })
     } else if (notificationSound) {
-      playNotificationSound()
+      playNotificationSound(notificationSoundFile)
     }
-  }, [notificationDesktop, notificationSound])
+  }, [notificationDesktop, notificationSound, notificationSoundFile])
 
   // 监听等待输入事件
+  // 后端已确保只在状态从 busy → idle/waiting 时发送一次事件，无需前端防重复
   useEffect(() => {
     const setupListener = async () => {
       unlistenRef.current = await listen<WaitingInputEvent>('session_waiting_input', (event) => {
         const payload = event.payload
-
-        // 检查是否已通知过
-        if (!notifiedSessions.current.has(payload.session_id)) {
-          notifiedSessions.current.add(payload.session_id)
-
-          // 从 cwd 提取名称
-          const name = payload.cwd?.split(/[\\/]/).pop() || ''
-          sendNotification(payload.session_id, name, payload.cwd)
-        }
+        // 从 cwd 提取名称
+        const name = payload.cwd?.split(/[\\/]/).pop() || ''
+        sendNotification(payload.session_id, name, payload.cwd)
       })
     }
 
@@ -55,13 +50,4 @@ export function useNotification() {
       }
     }
   }, [sendNotification])
-
-  // 清除通知记录（当 session 状态变化时）
-  const clearNotifiedSession = useCallback((sessionId: string) => {
-    notifiedSessions.current.delete(sessionId)
-  }, [])
-
-  return {
-    clearNotifiedSession,
-  }
 }

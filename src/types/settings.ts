@@ -1,5 +1,12 @@
 export type TerminalType = 'wezterm' | 'cmd' | 'powershell'
 
+// 音频文件信息
+export interface SoundInfo {
+  name: string        // 显示名称
+  filename: string    // 文件名（"builtin:default" 表示内置默认）
+  isBuiltin?: boolean // 是否为内置音频
+}
+
 export interface FavoritePath {
   path: string           // 标准化的路径
   useCount: number       // 使用次数
@@ -15,6 +22,7 @@ export interface AppSettings {
   defaultTimeRange: '3d' | '7d' | '30d' | 'all'
   notificationSound: boolean
   notificationDesktop: boolean
+  notificationSoundFile: string  // 选中的音频文件名（空表示使用默认）
   theme: 'light' | 'dark' | 'system'
   terminalType: TerminalType
 }
