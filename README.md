@@ -9,10 +9,16 @@
 - **实时监控**: 监控运行中的 Claude Code session 状态
   - 显示 session 状态（busy/idle/waiting）
 - **一键跳转**: 快速切换到对应的终端窗口（WezTerm、cmd、PowerShell）
+
+- **新建 session**: 选择工作目录和终端类型，启动新的 Claude Code
+<img width="1500" height="1037" alt="image" src="https://github.com/user-attachments/assets/c934ca82-8686-4ada-945a-01151a63c025" />
+
 - **历史管理**: 收藏、搜索、恢复历史 session
   - 搜索支持名称、路径、对话内容
   - 支持收藏过滤和时间筛选
-- **新建 session**: 选择工作目录和终端类型，启动新的 Claude Code
+<img width="1500" height="1037" alt="image" src="https://github.com/user-attachments/assets/6d529bdf-2770-4426-884f-26f54617a76c" />
+
+
 
 ## 安装
 
