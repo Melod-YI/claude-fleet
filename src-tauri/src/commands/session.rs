@@ -135,9 +135,18 @@ pub async fn start_new_session(
         info!("[start_new_session] 终端配置: {} {}", config.command, config.args.join(" "));
 
         // 替换参数中的变量
-        let args: Vec<String> = config.args.iter().map(|arg| {
+        let mut args: Vec<String> = config.args.iter().map(|arg| {
             arg.replace("{cwd}", &working_directory)
         }).collect();
+
+        // 如果有名称，添加 --name 参数到末尾
+        if let Some(ref session_name) = name {
+            let trimmed_name = session_name.trim();
+            if !trimmed_name.is_empty() {
+                args.push("--name".to_string());
+                args.push(trimmed_name.to_string());
+            }
+        }
 
         let mut cmd = Command::new(config.command);
         cmd.args(&args);

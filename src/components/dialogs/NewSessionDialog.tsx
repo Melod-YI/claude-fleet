@@ -67,7 +67,7 @@ export function NewSessionDialog({
       // 调用 Tauri 命令启动 Claude Code
       await invoke('start_new_session', {
         workingDirectory,
-        name: sessionName || undefined,
+        name: sessionName.trim() || undefined,
         terminalType,
       })
 
