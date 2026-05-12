@@ -2,7 +2,7 @@
 
 一个管理多个 Claude Code session 的桌面应用工具。
 
-> **声明**: 本项目借鉴了 [cc-switch](https://github.com/sst/cc-switch) 的设计理念和部分实现思路，在此表示感谢。
+> **声明**: 本项目借鉴了 [cc-switch](https://github.com/farion1231/cc-switch) 的设计理念和部分实现思路，在此表示感谢。
 
 ## 功能
 
@@ -17,8 +17,6 @@
 ## 安装
 
 下载最新的安装包: [Releases](https://github.com/Melod-YI/claude-fleet/releases)
-
-- Windows: `.msi` 或 `-setup.exe` 安装包
 
 ## 使用
 
@@ -87,7 +85,7 @@ npm run tauri build
 
 ## 致谢
 
-本项目的以下设计借鉴了 [cc-switch](https://github.com/sst/cc-switch):
+本项目的以下设计借鉴了 [cc-switch](https://github.com/farion1231/cc-switch):
 - Session 数据结构设计
 - JSONL 文件解析逻辑
 - Session 元数据提取方法
