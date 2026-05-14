@@ -52,3 +52,25 @@ export async function resumeInTerminal(session: ClaudeSession): Promise<void> {
     throw new Error(`恢复失败，命令已复制到剪贴板: ${error}`)
   }
 }
+
+/**
+ * 打开目录（Windows 资源管理器）
+ */
+export async function openDirectory(path: string): Promise<void> {
+  try {
+    await invoke('open_directory', { path })
+  } catch (error) {
+    throw new Error(String(error))
+  }
+}
+
+/**
+ * 在 VSCode 中打开目录
+ */
+export async function openInVSCode(path: string): Promise<void> {
+  try {
+    await invoke('open_in_vscode', { path })
+  } catch (error) {
+    throw new Error(String(error))
+  }
+}
