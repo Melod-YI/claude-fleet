@@ -46,8 +46,8 @@ export function PathHoverDisplay({ path, displayName, className }: PathHoverDisp
         <span className="truncate text-sm text-gray-600">{displayText}</span>
       </div>
 
-      {/* 悬浮层 */}
-      <div className="absolute left-0 top-full mt-1 hidden group-hover:flex items-center gap-2 bg-white border border-gray-200 rounded-md px-3 py-1.5 shadow-md z-10 min-w-[200px]">
+      {/* 悬浮层 - hover:flex 让鼠标移到悬浮层时保持显示 */}
+      <div className="absolute left-0 top-full hidden group-hover:flex hover:flex items-center gap-2 bg-white border border-gray-200 rounded-md px-3 py-1.5 shadow-md z-10 min-w-[200px]">
         <span className="text-xs text-gray-600 truncate max-w-[300px]" title={path}>{path}</span>
         <div className="flex items-center gap-1 shrink-0">
           {/* 复制 */}
