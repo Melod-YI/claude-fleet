@@ -4,9 +4,10 @@ import { StatusBadge } from "./StatusBadge"
 import { Button } from "@/components/ui/button"
 import { formatRelativeTime, formatRelativeTimeFromTimestamp } from "@/utils"
 import { jumpToTerminal } from "@/services"
-import { Star, Folder, Clock } from "lucide-react"
+import { Star, Clock } from "lucide-react"
 import type { RunningSession } from "@/hooks/useRunningSessions"
 import { useFavoriteStore } from "@/stores"
+import { PathHoverDisplay } from "@/components/common/PathHoverDisplay"
 
 interface SessionCardProps {
   session: ClaudeSession
@@ -146,13 +147,10 @@ export function SessionCardNew({ session, onJumpToTerminal, onToggleFavorite, co
 
         {/* 元信息行 */}
         <div className="text-xs text-gray-500 mt-2 flex flex-wrap items-center gap-x-2">
-          <span
-            className="flex items-center gap-1 truncate max-w-[200px]"
-            title={session.cwd}
-          >
-            <Folder className="w-3 h-3 text-gray-400 shrink-0" />
-            {session.cwd.split(/[\\/]/).filter(Boolean).pop() || session.cwd}
-          </span>
+          <PathHoverDisplay
+            path={session.cwd}
+            className="max-w-[200px]"
+          />
           <span className="text-gray-300">|</span>
           <span className="flex items-center gap-1">
             <Clock className="w-3 h-3 text-gray-400" />
