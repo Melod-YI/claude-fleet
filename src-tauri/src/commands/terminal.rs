@@ -129,13 +129,14 @@ pub fn open_directory(path: String) -> Result<(), String> {
         Command::new("explorer")
             .arg(&path)
             .spawn()
-            .map_err(|e| format!("打开目录失败: {}", e))?;
+            .map_err(|e| format!("打开目录失败: {}。请确保路径存在且有效", e))?;
         info!("[open_directory] 完成");
         Ok(())
     }
 
     #[cfg(not(target_os = "windows"))]
     {
+        warn!("[open_directory] 非 Windows 平台，不支持");
         let _ = path;
         Err("仅支持 Windows 平台".to_string())
     }
@@ -158,6 +159,7 @@ pub fn open_in_vscode(path: String) -> Result<(), String> {
 
     #[cfg(not(target_os = "windows"))]
     {
+        warn!("[open_in_vscode] 非 Windows 平台，不支持");
         let _ = path;
         Err("仅支持 Windows 平台".to_string())
     }
