@@ -6,6 +6,7 @@ import { formatRelativeTime, formatRelativeTimeFromTimestamp } from "@/utils"
 import { jumpToTerminal } from "@/services"
 import { Star, Folder, Clock } from "lucide-react"
 import type { RunningSession } from "@/hooks/useRunningSessions"
+import { useFavoriteStore } from "@/stores"
 
 interface SessionCardProps {
   session: ClaudeSession
@@ -86,12 +87,15 @@ export function SessionCard({ session, onJumpToTerminal, onToggleFavorite }: Ses
 interface SessionCardNewProps {
   session: RunningSession
   onJumpToTerminal: (session: RunningSession) => void
+  onToggleFavorite?: (sessionId: string) => void
   compact?: boolean // 精简模式，默认 true
 }
 
-export function SessionCardNew({ session, onJumpToTerminal, compact = true }: SessionCardNewProps) {
+export function SessionCardNew({ session, onJumpToTerminal, onToggleFavorite, compact = true }: SessionCardNewProps) {
   // idle 和 waiting 都是等待输入状态
   const isWaitingInput = session.status === "idle" || session.status === "waiting"
+  const { isFavorite } = useFavoriteStore()
+  const favorite = isFavorite(session.session_id)
 
   return (
     <div
@@ -169,6 +173,22 @@ export function SessionCardNew({ session, onJumpToTerminal, compact = true }: Se
           className={isWaitingInput ? "bg-violet-600 hover:bg-violet-700" : ""}
         >
           跳转到终端
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onToggleFavorite?.(session.session_id)}
+          className="p-1"
+          title={favorite ? "取消收藏" : "添加收藏"}
+        >
+          <Star
+            className={cn(
+              "w-4 h-4",
+              favorite
+                ? "fill-amber-400 text-amber-400"
+                : "text-gray-400"
+            )}
+          />
         </Button>
       </div>
     </div>

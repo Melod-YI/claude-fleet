@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { SessionCardNew } from "./SessionCard"
 import { useRunningSessions, RunningSession } from "@/hooks/useRunningSessions"
-import { useSettingsStore } from "@/stores"
+import { useSettingsStore, useFavoriteStore } from "@/stores"
 import { jumpToTerminal } from "@/services"
 import { RefreshCw, Plus } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
@@ -18,6 +18,7 @@ export function RunningTab() {
     recordPathUsage,
     getSortedFavoritePaths
   } = useSettingsStore()
+  const { toggleFavorite } = useFavoriteStore()
   const [refreshing, setRefreshing] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [newSessionOpen, setNewSessionOpen] = useState(false)
@@ -60,6 +61,10 @@ export function RunningTab() {
     } catch (e) {
       alert(String(e))
     }
+  }
+
+  const handleToggleFavorite = (sessionId: string) => {
+    toggleFavorite(sessionId)
   }
 
   const handleRecordPathUsage = (path: string) => {
@@ -146,6 +151,7 @@ export function RunningTab() {
                 key={session.session_id}
                 session={session}
                 onJumpToTerminal={handleJumpToTerminal}
+                onToggleFavorite={handleToggleFavorite}
                 compact={compact}
               />
             ))}
