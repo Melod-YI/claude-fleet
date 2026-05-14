@@ -1,3 +1,4 @@
+use std::process::Command;
 use crate::utils::window_manager::{
     find_terminal_window,
     find_window_by_pid_chain,
@@ -115,5 +116,49 @@ pub fn resume_in_terminal(working_directory: String, session_id: String, termina
             error!("[resume_in_terminal] 失败: {}", e);
             Err(e)
         }
+    }
+}
+
+/// 打开目录（Windows 用 explorer）
+#[tauri::command]
+pub fn open_directory(path: String) -> Result<(), String> {
+    info!("[open_directory] 开始，路径: {}", path);
+
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("打开目录失败: {}", e))?;
+        info!("[open_directory] 完成");
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = path;
+        Err("仅支持 Windows 平台".to_string())
+    }
+}
+
+/// 在 VSCode 中打开目录
+#[tauri::command]
+pub fn open_in_vscode(path: String) -> Result<(), String> {
+    info!("[open_in_vscode] 开始，路径: {}", path);
+
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("code")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("打开 VSCode 失败: {}。请确保 VSCode 已安装且 'code' 命令在 PATH 中", e))?;
+        info!("[open_in_vscode] 完成");
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = path;
+        Err("仅支持 Windows 平台".to_string())
     }
 }
