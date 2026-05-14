@@ -6,8 +6,9 @@ import { ConversationView } from "./ConversationView"
 import { useFavoriteStore } from "@/stores"
 import { resumeInTerminal } from "@/services"
 import { ConfirmDialog } from "@/components/dialogs"
-import { Star, Trash2, Copy, Check, RefreshCw, Play, Clock, FolderOpen } from "lucide-react"
+import { Star, Trash2, Copy, Check, RefreshCw, Play, Clock } from "lucide-react"
 import { formatRelativeTime } from "@/utils"
+import { PathHoverDisplay } from "@/components/common/PathHoverDisplay"
 
 interface SessionDetailProps {
   session: SessionMeta
@@ -114,26 +115,7 @@ export function SessionDetail({
         <div className="flex items-center gap-3 text-sm text-gray-500 min-w-0 flex-wrap">
           {/* 路径 */}
           {session.projectDir && (
-            <div className="relative group min-w-0 max-w-[400px]">
-              <div className="flex items-center gap-1.5 cursor-default">
-                <FolderOpen className="w-4 h-4 shrink-0" />
-                <span className="truncate">
-                  {session.projectDir.split(/[\\/]/).filter(Boolean).pop() || session.projectDir}
-                </span>
-              </div>
-              {/* 悬浮显示完整路径 */}
-              <div className="absolute left-0 top-full mt-1 hidden group-hover:flex items-center gap-2 bg-white border border-gray-200 rounded-md px-3 py-1.5 shadow-md z-10 max-w-[500px]">
-                <span className="text-xs text-gray-600 truncate">{session.projectDir}</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => navigator.clipboard.writeText(session.projectDir || "")}
-                  className="p-0.5 h-auto shrink-0"
-                >
-                  <Copy className="w-3 h-3" />
-                </Button>
-              </div>
-            </div>
+            <PathHoverDisplay path={session.projectDir} className="max-w-[400px]" />
           )}
 
           {/* 时间 */}
