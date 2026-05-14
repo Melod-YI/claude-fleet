@@ -150,9 +150,9 @@ pub fn open_in_vscode(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         // 使用 cmd.exe 执行 code 命令，确保能找到 PATH 中的 code
-        // /C 表示执行完命令后退出，start 在新窗口中启动
+        // code 命令会启动 VSCode 后自动退出，无需 start
         Command::new("cmd.exe")
-            .args(["/C", "start", "code", &path])
+            .args(["/C", "code", &path])
             .spawn()
             .map_err(|e| format!("打开 VSCode 失败: {}。请确保 VSCode 已安装且 'code' 命令在 PATH 中", e))?;
         info!("[open_in_vscode] 完成");
