@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Mutex, Arc, mpsc};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
@@ -203,8 +203,8 @@ pub fn add_running_session_from_file(content: &SessionFileContent) -> Result<(),
 
 /// 从文件内容更新 session 状态（PID 作为查找 key）
 pub fn update_session_status_from_file(content: &SessionFileContent) {
-    info!("[update_session_status_from_file] 开始更新: pid={}, sessionId={}, status={}",
-          content.pid, content.session_id, content.status);
+    info!("[update_session_status_from_file] 开始更新: pid={}, sessionId={}, status={}, name={:?}",
+          content.pid, content.session_id, content.status, content.name);
 
     let mut sessions = RUNNING_SESSIONS.lock().unwrap();
 
@@ -219,6 +219,13 @@ pub fn update_session_status_from_file(content: &SessionFileContent) {
             session.away_summary = None;
             session.away_summary_at = None;
             AWAY_SUMMARY_CACHE.lock().unwrap().remove(&session.session_id);
+        }
+
+        // 更新名称（用户可能通过 /rename 命令修改）
+        let new_name = resolve_session_name(content);
+        if session.name != new_name {
+            info!("[update_session_status_from_file] 名称变化: {} -> {}", session.name, new_name);
+            session.name = new_name;
         }
 
         let new_status = match content.status.as_str() {
@@ -363,7 +370,175 @@ pub fn init_running_sessions() -> Result<Vec<RunningSession>, String> {
     Ok(result)
 }
 
-/// 启动定时轮询（检测意外退出）
+/// 并行检查多个 PID 的进程存活状态
+/// 返回 (存活 PID 列表, 已退出 PID 列表)
+pub fn check_processes_parallel(pids: Vec<u32>) -> (Vec<u32>, Vec<u32>) {
+    if pids.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+
+    info!("[check_processes_parallel] 开始并行检查 {} 个进程", pids.len());
+    let start = Instant::now();
+
+    let pid_count = pids.len();
+
+    // 使用 channel 收集结果
+    let (tx, rx) = mpsc::channel();
+    let tx = Arc::new(tx);
+
+    // 为每个 PID 创建检查线程
+    for pid in pids {
+        let tx_clone = Arc::clone(&tx);
+        thread::spawn(move || {
+            let running = is_claude_process_running(pid);
+            let _ = tx_clone.send((pid, running));
+        });
+    }
+
+    // 收集所有结果
+    let mut alive = Vec::new();
+    let mut dead = Vec::new();
+
+    for _ in 0..pid_count {
+        if let Ok((pid, running)) = rx.recv_timeout(Duration::from_secs(5)) {
+            if running {
+                alive.push(pid);
+            } else {
+                dead.push(pid);
+            }
+        }
+    }
+
+    let elapsed = start.elapsed();
+    info!("[check_processes_parallel] 完成: 存活={}, 已退出={}, 耗时={}ms",
+          alive.len(), dead.len(), elapsed.as_millis());
+    (alive, dead)
+}
+
+/// 并行获取多个 PID 的窗口标题
+/// 返回 PID -> 窗口标题 映射
+pub fn get_window_titles_parallel(pids: Vec<u32>) -> HashMap<u32, Option<String>> {
+    if pids.is_empty() {
+        return HashMap::new();
+    }
+
+    info!("[get_window_titles_parallel] 开始并行获取 {} 个窗口标题", pids.len());
+    let start = Instant::now();
+
+    let pid_count = pids.len();
+
+    let (tx, rx) = mpsc::channel();
+    let tx = Arc::new(tx);
+
+    for pid in pids {
+        let tx_clone = Arc::clone(&tx);
+        thread::spawn(move || {
+            let title = get_window_title_by_pid_chain(pid);
+            let _ = tx_clone.send((pid, title));
+        });
+    }
+
+    let mut results = HashMap::new();
+    for _ in 0..pid_count {
+        if let Ok((pid, title)) = rx.recv_timeout(Duration::from_secs(3)) {
+            results.insert(pid, title);
+        }
+    }
+
+    let elapsed = start.elapsed();
+    info!("[get_window_titles_parallel] 完成: 获取 {} 个标题, 耗时={}ms", results.len(), elapsed.as_millis());
+    results
+}
+
+/// 检查 session 是否有自定义名称（从文件读取）
+fn has_custom_name(pid: u32) -> bool {
+    let sessions_dir = get_sessions_dir();
+    let file_path = sessions_dir.join(format!("{}.json", pid));
+
+    if let Ok(content) = fs::read_to_string(&file_path) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+            return json.get("name")
+                .and_then(|v| v.as_str())
+                .map(|s| !s.is_empty())
+                .unwrap_or(false);
+        }
+    }
+    false
+}
+
+/// 刷新所有运行中 session 的名称
+/// 用于轮询中检测窗口标题变化
+pub fn refresh_session_names() {
+    info!("[refresh_session_names] 开始刷新名称");
+    let start = Instant::now();
+
+    // 获取所有 PID 和当前信息
+    let sessions_info: Vec<(u32, String, String)> = RUNNING_SESSIONS
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(pid, s)| (*pid, s.name.clone(), s.cwd.clone()))
+        .collect();
+
+    if sessions_info.is_empty() {
+        debug!("[refresh_session_names] 无 session，跳过");
+        return;
+    }
+
+    // 并行获取窗口标题
+    let pids: Vec<u32> = sessions_info.iter().map(|(pid, _, _)| *pid).collect();
+    let titles = get_window_titles_parallel(pids);
+
+    // 更新名称（如果窗口标题变化且无自定义名称）
+    let mut updated_count = 0;
+    {
+        let mut sessions = RUNNING_SESSIONS.lock().unwrap();
+        for (pid, _current_name, cwd) in sessions_info {
+            if let Some(session) = sessions.get_mut(&pid) {
+                // 检查是否有自定义名称（从文件读取）
+                if has_custom_name(pid) {
+                    debug!("[refresh_session_names] PID {} 有自定义名称，跳过", pid);
+                    continue;
+                }
+
+                // 获取窗口标题
+                let window_title = titles.get(&pid).and_then(|t| t.clone());
+
+                // 计算新名称
+                let new_name = if let Some(title) = window_title {
+                    // 检查是否为默认标题
+                    let title_lower = title.trim().to_lowercase();
+                    let is_default = title_lower.ends_with("claude code")
+                        || title_lower.ends_with("claude-code");
+
+                    if is_default {
+                        // 使用文件夹名
+                        get_path_name(&cwd)
+                    } else {
+                        // 使用窗口标题
+                        title
+                    }
+                } else {
+                    // 无窗口标题，使用文件夹名
+                    get_path_name(&cwd)
+                };
+
+                // 检查名称是否变化
+                if session.name != new_name {
+                    info!("[refresh_session_names] PID {} 名称变化: {} -> {}",
+                          pid, session.name, new_name);
+                    session.name = new_name;
+                    updated_count += 1;
+                }
+            }
+        }
+    }
+
+    let elapsed = start.elapsed();
+    info!("[refresh_session_names] 完成: 更新 {} 个名称, 耗时={}ms", updated_count, elapsed.as_millis());
+}
+
+/// 启动定时轮询（检测意外退出、刷新名称）
 pub fn start_polling(app_handle: tauri::AppHandle) {
     info!("[start_polling] 开始启动轮询服务");
 
@@ -393,43 +568,40 @@ pub fn start_polling(app_handle: tauri::AppHandle) {
             let poll_start = Instant::now();
             info!("[polling_thread] 轮询 #{} 开始", poll_count);
 
-            let session_count = RUNNING_SESSIONS.lock().unwrap().len();
+            // 获取当前所有 PID
+            let pids: Vec<u32> = RUNNING_SESSIONS.lock().unwrap().keys().cloned().collect();
+            let session_count = pids.len();
+
             debug!("[polling_thread] 当前 session 数量: {}", session_count);
 
             if session_count == 0 {
-                debug!("[polling_thread] 无 session，跳过进程检查");
+                debug!("[polling_thread] 无 session，跳过");
                 continue;
             }
 
-            // 检查每个 session 的进程状态（PID 作为 key）
-            let pids_to_remove: Vec<u32> = RUNNING_SESSIONS
-                .lock()
-                .unwrap()
-                .iter()
-                .filter(|(pid, session)| {
-                    let running = is_claude_process_running(**pid);
-                    if !running {
-                        warn!("[polling_thread] PID {} (session {}) 已退出", pid, session.session_id);
-                    }
-                    !running
-                })
-                .map(|(pid, _)| *pid)
-                .collect();
+            // 1. 并行检查进程存活状态
+            info!("[polling_thread] 并行检查 {} 个进程", session_count);
+            let (_, dead_pids) = check_processes_parallel(pids);
 
-            let removed_count = pids_to_remove.len();
-            if removed_count > 0 {
-                info!("[polling_thread] 检测到 {} 个意外退出的 session", removed_count);
+            // 移除已退出的 session
+            if !dead_pids.is_empty() {
+                info!("[polling_thread] 检测到 {} 个意外退出的 session", dead_pids.len());
+                let mut sessions = RUNNING_SESSIONS.lock().unwrap();
+                for pid in &dead_pids {
+                    info!("[polling_thread] 移除 PID: {}", pid);
+                    sessions.remove(pid);
+                }
             }
 
-            for pid in &pids_to_remove {
-                info!("[polling_thread] 移除 PID: {}", pid);
-                RUNNING_SESSIONS.lock().unwrap().remove(pid);
-            }
+            // 2. 刷新 session 名称（检测窗口标题变化）
+            info!("[polling_thread] 刷新 session 名称");
+            refresh_session_names();
 
-            // 扫描 idle/waiting session 的 away_summary
+            // 3. 扫描 away_summary
+            info!("[polling_thread] 扫描 away_summary");
             scan_away_summaries();
 
-            // 通知前端
+            // 4. 发送事件通知前端
             let sessions = get_running_sessions();
 
             if let Err(e) = app_handle_clone.emit("running_sessions_changed", sessions) {
