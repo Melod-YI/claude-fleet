@@ -110,10 +110,121 @@ npm run build
 - `running_sessions.rs`: RunningSession, SessionStatus, SessionFileContent
 - `claude_data.rs`: ClaudeSession, Conversation
 
+## 音频资源嵌入（便携版支持）
+
+音频文件通过 `include_bytes!` 在编译时嵌入到 exe 二进制中，实现免安装便携版。
+
+**实现要点：**
+- `build.rs` 扫描 `src-tauri/sounds/` 目录，生成 `embedded_sounds.rs`
+- `include_bytes!` 的路径是相对于生成的代码文件位置（OUT_DIR），而非项目根目录
+- OUT_DIR 位于 `target/release/build/<hash>/out/`，需使用 `../../../sounds/` 回退到正确路径
+- 使用 `#[cfg(not(debug_assertions))]` 区分开发模式（读文件）和生产模式（读嵌入数据）
+- 同时支持外部 `sounds/` 目录用于用户自定义音频扩展
+
+**相关文件：**
+- `src-tauri/build.rs`: 生成嵌入代码
+- `src-tauri/src/commands/sound.rs`: 音频读取逻辑
+
+## 开发规范
+
+### 日志规范
+
+后端代码需要提供足够丰富的日志，便于问题定位：
+
+**必须添加日志的位置：**
+1. **重要方法入口** - 记录方法开始执行和关键参数
+2. **重要方法结束** - 记录执行结果和耗时（如适用）
+3. **核心业务分支** - 条件分支的决策点和结果
+4. **错误处理** - 捕获异常时记录完整错误信息
+5. **状态变化** - session 状态变更、配置修改等
+
+**日志级别使用：**
+- `info!`: 正常业务流程、重要操作结果
+- `debug!`: 详细执行过程、中间状态（需开启 DEBUG）
+- `warn!`: 非预期但可恢复的情况、功能不支持
+- `error!`: 错误、异常、操作失败
+
+**日志格式示例：**
+```rust
+// 方法入口
+info!("[method_name] 开始，参数: {}", param);
+
+// 条件分支
+debug!("[method_name] 分支A: 条件满足");
+info!("[method_name] 执行成功，结果: {}", result);
+
+// 错误
+error!("[method_name] 失败: {}", e);
+```
+
+**日志文件位置：**
+- `%USERPROFILE%\.claude-fleet\logs\claude-fleet-YYYY-MM-DD.log`
+- 保留最近 7 天日志
+
+### 前端规范
+
+**技术栈：**
+- React + TypeScript + Tailwind CSS + shadcn/ui（默认）
+- 状态管理：Zustand
+- 数据请求：TanStack Query
+
+**组件命名：**
+- 组件文件使用 PascalCase：`SessionCard.tsx`
+- 组件函数使用 PascalCase：`function SessionCard()`
+
+**样式规范：**
+- 使用 Tailwind CSS 类名
+- 使用 `cn()` 函数组合类名：`cn("base-class", condition && "conditional-class")`
+- 遵循 shadcn/ui 组件风格
+
+**服务层规范：**
+- 封装 Tauri `invoke()` 调用
+- 统一错误处理：`throw new Error(`操作失败: ${error}`)`
+- 使用 async/await
+
+### 后端规范
+
+**技术栈：**
+- Rust + Tauri 2.0
+- 日志：tracing + tracing_subscriber
+
+**命令命名：**
+- Tauri 命令使用 snake_case：`open_directory`
+- 前端调用对应 camelCase：`openDirectory`
+
+**Windows 特定代码：**
+- 使用 `#[cfg(target_os = "windows")]` 条件编译
+- 非 Windows 平台返回 `"仅支持 Windows 平台"` 错误
+- 使用 `cmd.exe` 执行外部命令，确保继承完整 PATH 环境变量
+
+**外部命令执行：**
+```rust
+// 推荐：通过 cmd.exe 执行，确保 PATH 可用
+Command::new("cmd.exe")
+    .args(["/C", "start", "code", &path])
+    .spawn()
+
+// 不推荐：直接调用（可能找不到 PATH 中的命令）
+Command::new("code")
+    .arg(&path)
+    .spawn()
+```
+
+### 测试规范
+
+**端到端测试：**
+- 使用 webapp-testing skill 完成端到端测试
+- 设计日志时考虑通过日志定位问题
+
+**单元测试：**
+- 运行：`cd src-tauri && cargo test`
+- 前端：`npm run build` 检查 TypeScript 编译
+
 ## 注意事项
 
 - 构建发布版本时需要同时完成前端 TypeScript 编译和 Rust 编译
 - Windows 窗口跳转功能在非 Windows 平台会返回错误
 - Session JSONL 文件解析逻辑在 `claude_data.rs` 的 `parse_session_file` 函数
 - 运行中 session 检测通过检查进程 PID 是否存在（tasklist 命令）
-- 日志文件存储在 `%APPDATA%/claude-fleet/logs/` 目录
+- 日志文件存储在 `%USERPROFILE%\.claude-fleet\logs\` 目录
+- Windows GUI 应用可能不继承完整 PATH，使用 `cmd.exe` 执行外部命令

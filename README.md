@@ -98,6 +98,31 @@ npm run tauri dev
 npm run tauri build
 ```
 
+### 开启 DEBUG 日志
+
+默认日志级别为 INFO，开启 DEBUG 日志可查看更详细的执行过程：
+
+**方法一：设置环境变量**
+```bash
+# Windows PowerShell
+$env:RUST_LOG = "debug"
+npm run tauri dev
+
+# Windows CMD
+set RUST_LOG=debug && npm run tauri dev
+
+# Linux/Mac
+RUST_LOG=debug npm run tauri dev
+```
+
+**方法二：只开启本项目 DEBUG**
+```bash
+RUST_LOG=claude_fleet=debug npm run tauri dev
+```
+
+**日志文件位置：**
+- `%USERPROFILE%\.claude-fleet\logs\claude-fleet-YYYY-MM-DD.log`
+
 ## 技术栈
 
 - Tauri 2.0
