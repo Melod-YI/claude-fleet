@@ -2,6 +2,12 @@ use std::fs;
 use std::path::PathBuf;
 use tracing::{info, warn, debug, error};
 
+// 生产模式：包含编译时生成的嵌入音频数据
+#[cfg(not(debug_assertions))]
+mod embedded {
+    include!(concat!(env!("OUT_DIR"), "/embedded_sounds.rs"));
+}
+
 /// 音频文件信息
 #[derive(Debug, serde::Serialize)]
 pub struct SoundInfo {
@@ -11,35 +17,48 @@ pub struct SoundInfo {
     pub filename: String,
 }
 
-/// 获取可用音频列表（不包括内置默认）
+/// 获取可用音频列表
 #[tauri::command]
 pub fn get_available_sounds(app: tauri::AppHandle) -> Result<Vec<SoundInfo>, String> {
     info!("[get_available_sounds] 获取可用音频列表");
 
-    let sounds_dir = get_sounds_dir(&app);
-
-    if !sounds_dir.exists() {
-        warn!("[get_available_sounds] 音频目录不存在: {:?}", sounds_dir);
-        return Ok(vec![]);
-    }
-
     let mut sounds = Vec::new();
 
-    if let Ok(entries) = fs::read_dir(&sounds_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if let Some(ext) = path.extension() {
-                let ext = ext.to_string_lossy().to_lowercase();
-                if ["wav", "mp3", "ogg"].contains(&ext.as_str()) {
-                    if let Some(stem) = path.file_stem() {
-                        let name = stem.to_string_lossy().to_string();
-                        let filename = path.file_name()
-                            .map(|n| n.to_string_lossy().to_string())
-                            .unwrap_or_default();
-                        // 排除 default 文件（使用内置默认）
-                        if name.to_lowercase() != "default" {
-                            debug!("[get_available_sounds] 发现音频: {} ({})", name, filename);
-                            sounds.push(SoundInfo { name, filename });
+    #[cfg(not(debug_assertions))]
+    {
+        // 生产模式：优先使用嵌入的音频
+        for (filename, _) in embedded::EMBEDDED_SOUNDS {
+            if let Some(stem) = PathBuf::from(filename).file_stem() {
+                let name = stem.to_string_lossy().to_string();
+                if name.to_lowercase() != "default" {
+                    debug!("[get_available_sounds] 嵌入音频: {} ({})", name, filename);
+                    sounds.push(SoundInfo { name, filename: filename.to_string() });
+                }
+            }
+        }
+    }
+
+    // 同时检查外部 sounds 目录（用于用户自定义音频）
+    let sounds_dir = get_sounds_dir(&app);
+    if sounds_dir.exists() {
+        if let Ok(entries) = fs::read_dir(&sounds_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(ext) = path.extension() {
+                    let ext = ext.to_string_lossy().to_lowercase();
+                    if ["wav", "mp3", "ogg"].contains(&ext.as_str()) {
+                        if let Some(stem) = path.file_stem() {
+                            let name = stem.to_string_lossy().to_string();
+                            let filename = path.file_name()
+                                .map(|n| n.to_string_lossy().to_string())
+                                .unwrap_or_default();
+                            if name.to_lowercase() != "default" {
+                                // 检查是否已存在（避免重复）
+                                if !sounds.iter().any(|s: &SoundInfo| s.filename == filename) {
+                                    debug!("[get_available_sounds] 外部音频: {} ({})", name, filename);
+                                    sounds.push(SoundInfo { name, filename });
+                                }
+                            }
                         }
                     }
                 }
@@ -65,14 +84,6 @@ pub fn get_sound_data(app: tauri::AppHandle, filename: String) -> Result<String,
         return Err("无效文件名".to_string());
     }
 
-    let sounds_dir = get_sounds_dir(&app);
-    let sound_path = sounds_dir.join(&filename);
-
-    if !sound_path.exists() {
-        warn!("[get_sound_data] 音频文件不存在: {:?}", sound_path);
-        return Err(format!("音频文件不存在: {}", filename));
-    }
-
     // 根据扩展名确定 MIME 类型
     let mime_type = match PathBuf::from(&filename).extension() {
         Some(ext) => match ext.to_string_lossy().to_lowercase().as_str() {
@@ -84,11 +95,33 @@ pub fn get_sound_data(app: tauri::AppHandle, filename: String) -> Result<String,
         None => "audio/wav",
     };
 
+    // 生产模式：优先从嵌入数据获取
+    #[cfg(not(debug_assertions))]
+    {
+        for (embedded_name, data) in embedded::EMBEDDED_SOUNDS {
+            if embedded_name == &filename {
+                let base64 = base64_encode(data);
+                let data_uri = format!("data:{};base64,{}", mime_type, base64);
+                info!("[get_sound_data] 从嵌入数据读取音频，{} 字节", data.len());
+                return Ok(data_uri);
+            }
+        }
+    }
+
+    // 从外部文件获取
+    let sounds_dir = get_sounds_dir(&app);
+    let sound_path = sounds_dir.join(&filename);
+
+    if !sound_path.exists() {
+        warn!("[get_sound_data] 音频文件不存在: {:?}", sound_path);
+        return Err(format!("音频文件不存在: {}", filename));
+    }
+
     match fs::read(&sound_path) {
         Ok(data) => {
             let base64 = base64_encode(&data);
             let data_uri = format!("data:{};base64,{}", mime_type, base64);
-            info!("[get_sound_data] 成功读取音频文件，{} 字节", data.len());
+            info!("[get_sound_data] 从外部文件读取音频，{} 字节", data.len());
             Ok(data_uri)
         }
         Err(e) => {
@@ -98,16 +131,13 @@ pub fn get_sound_data(app: tauri::AppHandle, filename: String) -> Result<String,
     }
 }
 
-/// 获取音频目录路径
-/// 开发模式：src-tauri/sounds
-/// 生产模式：resource_dir/sounds
-fn get_sounds_dir(_app: &tauri::AppHandle) -> PathBuf {
+/// 获取音频目录路径（用于外部音频文件）
+fn get_sounds_dir(app: &tauri::AppHandle) -> PathBuf {
     #[cfg(debug_assertions)]
     {
         // 开发模式：使用 src-tauri/sounds
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
-        // 检查当前目录是否已经是 src-tauri
         if cwd.ends_with("src-tauri") {
             cwd.join("sounds")
         } else {
@@ -117,9 +147,9 @@ fn get_sounds_dir(_app: &tauri::AppHandle) -> PathBuf {
 
     #[cfg(not(debug_assertions))]
     {
-        // 生产模式：使用 resource 目录
+        // 生产模式：exe 所在目录的 sounds 子目录
         use tauri::Manager;
-        _app.path().resource_dir()
+        app.path().resource_dir()
             .map(|p| p.join("sounds"))
             .unwrap_or_else(|_| PathBuf::from("sounds"))
     }
