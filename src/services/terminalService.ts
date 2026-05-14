@@ -60,7 +60,7 @@ export async function openDirectory(path: string): Promise<void> {
   try {
     await invoke('open_directory', { path })
   } catch (error) {
-    throw new Error(String(error))
+    throw new Error(`打开目录失败: ${error}`)
   }
 }
 
@@ -71,6 +71,6 @@ export async function openInVSCode(path: string): Promise<void> {
   try {
     await invoke('open_in_vscode', { path })
   } catch (error) {
-    throw new Error(String(error))
+    throw new Error(`在 VSCode 中打开失败: ${error}`)
   }
 }
