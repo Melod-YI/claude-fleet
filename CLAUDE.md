@@ -197,18 +197,45 @@ error!("[method_name] 失败: {}", e);
 - 非 Windows 平台返回 `"仅支持 Windows 平台"` 错误
 - 使用 `cmd.exe` 执行外部命令，确保继承完整 PATH 环境变量
 
-**外部命令执行：**
-```rust
-// 推荐：通过 cmd.exe 执行，确保 PATH 可用
-Command::new("cmd.exe")
-    .args(["/C", "start", "code", &path])
-    .spawn()
+**Windows 外部命令执行经验总结：**
 
-// 不推荐：直接调用（可能找不到 PATH 中的命令）
-Command::new("code")
-    .arg(&path)
-    .spawn()
-```
+Windows GUI 应用（如 Tauri）可能不继承终端的完整 PATH 环境变量，导致直接调用 PATH 中的命令失败。以下是解决方案的演进过程：
+
+1. **直接调用（失败）** - 找不到 PATH 中的命令
+   ```rust
+   Command::new("code").arg(&path).spawn()  // ❌ 失败
+   ```
+
+2. **通过 cmd.exe + start（能执行但有窗口）** - 弹出终端窗口且不会自动关闭
+   ```rust
+   Command::new("cmd.exe")
+       .args(["/C", "start", "code", &path])
+       .spawn()  // ❌ 有窗口闪烁
+   ```
+
+3. **通过 cmd.exe 直接执行（窗口短暂显示）** - 终端会退出但窗口短暂可见
+   ```rust
+   Command::new("cmd.exe")
+       .args(["/C", "code", &path])
+       .spawn()  // ❌ 窗口短暂显示
+   ```
+
+4. **最终方案：CREATE_NO_WINDOW 标志** - 完全隐藏进程窗口
+   ```rust
+   use std::os::windows::process::CommandExt;
+   const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+   Command::new("cmd.exe")
+       .args(["/C", "code", &path])
+       .creation_flags(CREATE_NO_WINDOW)  // ✅ 完全隐藏窗口
+       .spawn()
+   ```
+
+**关键要点：**
+- `CREATE_NO_WINDOW = 0x08000000` 是 Windows API 标志，完全隐藏进程窗口
+- `cmd.exe /C` 执行命令后自动退出，配合 CREATE_NO_WINDOW 无任何窗口显示
+- `start` 命令会在新窗口启动程序，即使程序退出窗口也会短暂显示，**不要使用**
+- 需要引入 `std::os::windows::process::CommandExt` trait 才能使用 `creation_flags`
 
 ### 测试规范
 
