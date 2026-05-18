@@ -9,6 +9,7 @@ use crate::utils::running_sessions::{
     stop_polling,
     RunningSession,
 };
+use crate::db::sessions_meta::get_session_names;
 use tracing::{info, error};
 
 /// 初始化运行中 session 列表（应用启动时调用）
@@ -33,8 +34,32 @@ pub fn init_running() -> Result<Vec<RunningSession>, String> {
 pub fn list_running() -> Result<Vec<RunningSession>, String> {
     info!("[list_running] 开始获取运行中 session 列表");
     let sessions = get_running_sessions();
-    info!("[list_running] 完成，返回 {} 个 session", sessions.len());
-    Ok(sessions)
+
+    // 获取所有 running session 的自定义名称
+    let session_ids: Vec<String> = sessions.iter().map(|s| s.session_id.clone()).collect();
+    match get_session_names(&session_ids) {
+        Ok(custom_names) => {
+            // 合并 custom_name
+            let mut result = sessions;
+            for session in &mut result {
+                for (id, name) in &custom_names {
+                    if session.session_id == *id {
+                        session.custom_name = name.clone();
+                        break;
+                    }
+                }
+            }
+            info!("[list_running] 完成，返回 {} 个 session（已合并 {} 个自定义名称）",
+                  result.len(), custom_names.iter().filter(|(_, n)| n.is_some()).count());
+            Ok(result)
+        }
+        Err(e) => {
+            error!("[list_running] 获取自定义名称失败: {}", e);
+            // 即使获取自定义名称失败，仍然返回 session 列表（custom_name 为 None）
+            info!("[list_running] 完成，返回 {} 个 session（无自定义名称）", sessions.len());
+            Ok(sessions)
+        }
+    }
 }
 
 /// 启动定时轮询
