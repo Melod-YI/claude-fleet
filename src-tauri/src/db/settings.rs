@@ -52,3 +52,20 @@ pub fn get_all_settings() -> Result<HashMap<String, String>> {
     info!("[get_all_settings] 共 {} 个设置", settings.len());
     Ok(settings)
 }
+
+// Tauri 命令包装
+
+#[tauri::command]
+pub fn get_setting_cmd(key: String) -> Result<Option<String>, String> {
+    get_setting(&key).map_err(|e| format!("获取设置失败: {}", e))
+}
+
+#[tauri::command]
+pub fn set_setting_cmd(key: String, value: String) -> Result<(), String> {
+    set_setting(&key, &value).map_err(|e| format!("设置失败: {}", e))
+}
+
+#[tauri::command]
+pub fn get_all_settings_cmd() -> Result<HashMap<String, String>, String> {
+    get_all_settings().map_err(|e| format!("获取设置失败: {}", e))
+}

@@ -35,3 +35,10 @@ pub fn needs_migration() -> bool {
     let existing_favorites = get_all_favorites().unwrap_or_default();
     existing_favorites.is_empty()
 }
+
+// Tauri 命令包装
+
+#[tauri::command]
+pub fn needs_migration_cmd() -> Result<bool, String> {
+    Ok(needs_migration())
+}

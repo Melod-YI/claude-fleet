@@ -96,3 +96,20 @@ pub fn get_sorted_favorite_paths() -> Result<Vec<FavoritePath>> {
 
     Ok(scored.into_iter().take(MAX_DISPLAY).map(|(p, _)| p).collect())
 }
+
+// Tauri 命令包装
+
+#[tauri::command]
+pub fn record_path_usage_cmd(path: String) -> Result<(), String> {
+    record_path_usage(&path).map_err(|e| format!("记录路径失败: {}", e))
+}
+
+#[tauri::command]
+pub fn remove_favorite_path_cmd(path: String) -> Result<(), String> {
+    remove_favorite_path(&path).map_err(|e| format!("移除路径失败: {}", e))
+}
+
+#[tauri::command]
+pub fn get_sorted_favorite_paths_cmd() -> Result<Vec<FavoritePath>, String> {
+    get_sorted_favorite_paths().map_err(|e| format!("获取路径失败: {}", e))
+}

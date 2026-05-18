@@ -23,6 +23,12 @@ use commands::session_commands::{
 };
 use commands::terminal::{jump_to_terminal, jump_to_terminal_by_pid, smart_jump_to_terminal, resume_in_terminal, open_directory, open_in_vscode};
 use commands::sound::{get_available_sounds, get_sound_data};
+// 数据库命令
+use db::sessions_meta::{set_session_name_cmd, get_session_name_cmd, delete_session_name_cmd};
+use db::favorites::{add_favorite_cmd, remove_favorite_cmd, is_favorite_cmd, get_all_favorites_cmd};
+use db::favorite_paths::{record_path_usage_cmd, remove_favorite_path_cmd, get_sorted_favorite_paths_cmd};
+use db::settings::{get_setting_cmd, set_setting_cmd, get_all_settings_cmd};
+use db::migration::needs_migration_cmd;
 use tracing::{info, error};
 use std::time::Instant;
 
@@ -114,7 +120,22 @@ pub fn run() {
             open_in_vscode,
             // Sound commands
             get_available_sounds,
-            get_sound_data
+            get_sound_data,
+            // 数据库命令
+            set_session_name_cmd,
+            get_session_name_cmd,
+            delete_session_name_cmd,
+            add_favorite_cmd,
+            remove_favorite_cmd,
+            is_favorite_cmd,
+            get_all_favorites_cmd,
+            record_path_usage_cmd,
+            remove_favorite_path_cmd,
+            get_sorted_favorite_paths_cmd,
+            get_setting_cmd,
+            set_setting_cmd,
+            get_all_settings_cmd,
+            needs_migration_cmd
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

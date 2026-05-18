@@ -62,3 +62,25 @@ pub fn get_all_favorites() -> Result<Vec<String>> {
     info!("[get_all_favorites] 共 {} 个收藏", session_ids.len());
     Ok(session_ids)
 }
+
+// Tauri 命令包装
+
+#[tauri::command]
+pub fn add_favorite_cmd(session_id: String) -> Result<(), String> {
+    add_favorite(&session_id).map_err(|e| format!("添加收藏失败: {}", e))
+}
+
+#[tauri::command]
+pub fn remove_favorite_cmd(session_id: String) -> Result<(), String> {
+    remove_favorite(&session_id).map_err(|e| format!("移除收藏失败: {}", e))
+}
+
+#[tauri::command]
+pub fn is_favorite_cmd(session_id: String) -> Result<bool, String> {
+    is_favorite(&session_id).map_err(|e| format!("检查收藏失败: {}", e))
+}
+
+#[tauri::command]
+pub fn get_all_favorites_cmd() -> Result<Vec<String>, String> {
+    get_all_favorites().map_err(|e| format!("获取收藏列表失败: {}", e))
+}

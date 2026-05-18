@@ -15,35 +15,50 @@ pub fn read_head_tail_lines(
     head_n: usize,
     tail_n: usize,
 ) -> io::Result<(Vec<String>, Vec<String>)> {
+    use tracing::debug;
+    debug!("[read_head_tail_lines] 开始: path={}, head_n={}, tail_n={}", path.display(), head_n, tail_n);
+
     let file = File::open(path)?;
     let file_len = file.metadata()?.len();
+    debug!("[read_head_tail_lines] 文件大小: {} 字节", file_len);
 
     // For small files, read all lines once and split
     if file_len < 16_384 {
+        debug!("[read_head_tail_lines] 小文件，读取全部行");
         let reader = BufReader::new(file);
         let all: Vec<String> = reader.lines().map_while(Result::ok).collect();
-        let head = all.iter().take(head_n).cloned().collect();
+        debug!("[read_head_tail_lines] 总行数: {}", all.len());
+        let head: Vec<String> = all.iter().take(head_n).cloned().collect();
         let skip = all.len().saturating_sub(tail_n);
-        let tail = all.into_iter().skip(skip).collect();
+        let tail: Vec<String> = all.into_iter().skip(skip).collect();
+        debug!("[read_head_tail_lines] 返回: head={}, tail={}", head.len(), tail.len());
         return Ok((head, tail));
     }
 
     // Read head lines from the beginning
+    debug!("[read_head_tail_lines] 大文件，分步读取");
     let reader = BufReader::new(file);
     let head: Vec<String> = reader.lines().take(head_n).map_while(Result::ok).collect();
+    debug!("[read_head_tail_lines] head 行数: {}", head.len());
 
     // Seek to last ~16 KB for tail lines
     let seek_pos = file_len.saturating_sub(16_384);
+    debug!("[read_head_tail_lines] seek 位置: {} (倒数 16KB)", seek_pos);
+
     let mut file2 = File::open(path)?;
     file2.seek(SeekFrom::Start(seek_pos))?;
     let tail_reader = BufReader::new(file2);
     let all_tail: Vec<String> = tail_reader.lines().map_while(Result::ok).collect();
+    debug!("[read_head_tail_lines] seek 后读取行数: {}", all_tail.len());
 
     // Skip first partial line if we seeked into the middle of a line
     let skip_first = if seek_pos > 0 { 1 } else { 0 };
     let usable: Vec<String> = all_tail.into_iter().skip(skip_first).collect();
+    debug!("[read_head_tail_lines] 跳过首行后行数: {}", usable.len());
+
     let skip = usable.len().saturating_sub(tail_n);
-    let tail = usable.into_iter().skip(skip).collect();
+    let tail: Vec<String> = usable.into_iter().skip(skip).collect();
+    debug!("[read_head_tail_lines] 最终 tail 行数: {}", tail.len());
 
     Ok((head, tail))
 }
