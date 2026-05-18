@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { formatRelativeTime, formatRelativeTimeFromTimestamp } from "@/utils"
 import { jumpToTerminal } from "@/services"
 import { Star, Clock } from "lucide-react"
-import type { RunningSession } from "@/hooks/useRunningSessions"
+import type { RunningSession } from "@/types"
 import { useFavoriteStore } from "@/stores"
 import { PathHoverDisplay } from "@/components/common/PathHoverDisplay"
 

@@ -23,8 +23,22 @@ export interface SessionMessage {
   ts?: number;                 // i64 milliseconds timestamp
 }
 
-// 旧类型定义 - 保留用于 running sessions
+// Session 运行状态（对应 Claude JSON 文件中的三种状态）
 export type SessionStatus = 'busy' | 'idle' | 'waiting'
+
+// Running session (from Tauri backend)
+export interface RunningSession {
+  session_id: string
+  pid: number
+  status: SessionStatus
+  cwd: string
+  name: string
+  updated_at: number
+  away_summary?: string
+  away_summary_at?: number
+  last_user_input?: string
+  custom_name?: string       // Claude Fleet 自定义名称
+}
 
 export interface ClaudeSession {
   id: string

@@ -1,6 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { ClaudeSession, Conversation } from '@/types'
-import type { RunningSession } from '@/hooks/useRunningSessions'
+import type { ClaudeSession, Conversation, RunningSession } from '@/types'
 
 /**
  * 获取运行中 session 列表（轻量级，用于 Running Tab）

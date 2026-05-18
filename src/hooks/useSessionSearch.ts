@@ -22,6 +22,7 @@ export function useSessionSearch({
 
     sessions.forEach((session, idx) => {
       const metaContent = [
+        session.customName,
         session.sessionId,
         session.title,
         session.summary,

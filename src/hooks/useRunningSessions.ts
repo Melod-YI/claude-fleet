@@ -1,22 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, UnlistenFn } from '@tauri-apps/api/event'
-
-// Session 运行状态（对应 Claude JSON 文件中的三种状态）
-export type SessionStatus = 'busy' | 'idle' | 'waiting'
-
-export interface RunningSession {
-  session_id: string
-  pid: number
-  status: SessionStatus
-  cwd: string
-  name: string
-  updated_at: number
-  away_summary?: string
-  away_summary_at?: number
-  last_user_input?: string
-  custom_name?: string       // Claude Fleet 自定义名称
-}
+import type { RunningSession } from '@/types'
 
 export function useRunningSessions() {
   const [sessions, setSessions] = useState<RunningSession[]>([])
