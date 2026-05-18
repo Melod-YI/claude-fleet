@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Seek, SeekFrom};
+use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use chrono::{DateTime, FixedOffset};
@@ -9,22 +9,26 @@ use serde_json::Value;
 pub const TITLE_MAX_CHARS: usize = 80;
 
 /// Read the first `head_n` lines and last `tail_n` lines from a file efficiently.
-/// For small files (< 16 KB), reads all lines once to avoid unnecessary seeking.
+/// For small files (< 32 KB), reads all lines once to avoid unnecessary seeking.
+/// For large files, seeks to last ~32 KB and finds line boundaries properly.
 pub fn read_head_tail_lines(
     path: &Path,
     head_n: usize,
     tail_n: usize,
 ) -> io::Result<(Vec<String>, Vec<String>)> {
-    use tracing::debug;
+    use tracing::{debug, warn};
     debug!("[read_head_tail_lines] 开始: path={}, head_n={}, tail_n={}", path.display(), head_n, tail_n);
 
     let file = File::open(path)?;
     let file_len = file.metadata()?.len();
     debug!("[read_head_tail_lines] 文件大小: {} 字节", file_len);
 
+    // Threshold for "small file" - increased to 32KB for better safety
+    const SMALL_FILE_THRESHOLD: u64 = 32_768;
+
     // For small files, read all lines once and split
-    if file_len < 16_384 {
-        debug!("[read_head_tail_lines] 小文件，读取全部行");
+    if file_len < SMALL_FILE_THRESHOLD {
+        debug!("[read_head_tail_lines] 小文件 (<32KB)，读取全部行");
         let reader = BufReader::new(file);
         let all: Vec<String> = reader.lines().map_while(Result::ok).collect();
         debug!("[read_head_tail_lines] 总行数: {}", all.len());
@@ -41,23 +45,38 @@ pub fn read_head_tail_lines(
     let head: Vec<String> = reader.lines().take(head_n).map_while(Result::ok).collect();
     debug!("[read_head_tail_lines] head 行数: {}", head.len());
 
-    // Seek to last ~16 KB for tail lines
-    let seek_pos = file_len.saturating_sub(16_384);
-    debug!("[read_head_tail_lines] seek 位置: {} (倒数 16KB)", seek_pos);
+    // Seek to last ~32 KB for tail lines
+    let tail_chunk_size = 32_768u64;
+    let seek_pos = file_len.saturating_sub(tail_chunk_size);
+    debug!("[read_head_tail_lines] seek 位置: {} (倒数 32KB)", seek_pos);
 
+    // Open file again and seek
     let mut file2 = File::open(path)?;
     file2.seek(SeekFrom::Start(seek_pos))?;
-    let tail_reader = BufReader::new(file2);
-    let all_tail: Vec<String> = tail_reader.lines().map_while(Result::ok).collect();
-    debug!("[read_head_tail_lines] seek 后读取行数: {}", all_tail.len());
 
-    // Skip first partial line if we seeked into the middle of a line
-    let skip_first = if seek_pos > 0 { 1 } else { 0 };
-    let usable: Vec<String> = all_tail.into_iter().skip(skip_first).collect();
-    debug!("[read_head_tail_lines] 跳过首行后行数: {}", usable.len());
+    // Read raw bytes and find first newline to avoid UTF-8 boundary issues
+    let mut buf = vec![0u8; tail_chunk_size as usize];
+    let bytes_read = file2.read(&mut buf)?;
+    debug!("[read_head_tail_lines] 读取字节: {}", bytes_read);
 
-    let skip = usable.len().saturating_sub(tail_n);
-    let tail: Vec<String> = usable.into_iter().skip(skip).collect();
+    // Find the first newline (0x0A) to skip partial first line
+    let newline_pos = buf.iter().position(|&b| b == 0x0A);
+    let start_pos = if seek_pos > 0 {
+        newline_pos.map(|p| p + 1).unwrap_or(0)
+    } else {
+        0
+    };
+    debug!("[read_head_tail_lines] 换行符位置: {:?}, start_pos: {}", newline_pos, start_pos);
+
+    // Convert bytes after first newline to string and split into lines
+    let tail_bytes = &buf[start_pos..bytes_read];
+    let tail_str = String::from_utf8_lossy(tail_bytes);
+    let all_tail: Vec<String> = tail_str.lines().map(|s| s.to_string()).collect();
+    debug!("[read_head_tail_lines] 解析行数: {}", all_tail.len());
+
+    // Take only the last tail_n lines
+    let skip = all_tail.len().saturating_sub(tail_n);
+    let tail: Vec<String> = all_tail.into_iter().skip(skip).collect();
     debug!("[read_head_tail_lines] 最终 tail 行数: {}", tail.len());
 
     Ok((head, tail))

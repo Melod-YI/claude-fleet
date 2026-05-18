@@ -2,12 +2,14 @@ import { cn } from "@/lib/utils"
 import type { ClaudeSession } from "@/types"
 import { StatusBadge } from "./StatusBadge"
 import { Button } from "@/components/ui/button"
-import { formatRelativeTime, formatRelativeTimeFromTimestamp } from "@/utils"
+import { formatRelativeTime, formatRelativeTimeFromTimestamp, getDisplayName } from "@/utils"
 import { jumpToTerminal } from "@/services"
 import { Star, Clock } from "lucide-react"
 import type { RunningSession } from "@/types"
 import { useFavoriteStore } from "@/stores"
 import { PathHoverDisplay } from "@/components/common/PathHoverDisplay"
+import { EditableName } from "@/components/common/EditableName"
+import { setSessionName } from "@/services/dbService"
 
 interface SessionCardProps {
   session: ClaudeSession
@@ -89,14 +91,16 @@ interface SessionCardNewProps {
   session: RunningSession
   onJumpToTerminal: (session: RunningSession) => void
   onToggleFavorite?: (sessionId: string) => void
+  onRename?: () => void
   compact?: boolean // 精简模式，默认 true
 }
 
-export function SessionCardNew({ session, onJumpToTerminal, onToggleFavorite, compact = true }: SessionCardNewProps) {
+export function SessionCardNew({ session, onJumpToTerminal, onToggleFavorite, onRename, compact = true }: SessionCardNewProps) {
   // idle 和 waiting 都是等待输入状态
   const isWaitingInput = session.status === "idle" || session.status === "waiting"
   const { isFavorite } = useFavoriteStore()
   const favorite = isFavorite(session.session_id)
+  const displayName = getDisplayName(session)
 
   return (
     <div
@@ -110,7 +114,14 @@ export function SessionCardNew({ session, onJumpToTerminal, onToggleFavorite, co
     >
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
-          <h3 className="font-semibold text-gray-900 truncate">{session.name}</h3>
+          <EditableName
+            name={displayName}
+            onSave={async (newName) => {
+              await setSessionName(session.session_id, newName)
+              onRename?.()
+            }}
+            className="font-semibold text-gray-900"
+          />
           <StatusBadge status={session.status} />
         </div>
 

@@ -1,17 +1,20 @@
 import { cn } from "@/lib/utils"
 import type { SessionMeta } from "@/types"
 import { Clock, Star } from "lucide-react"
-import { formatRelativeTime } from "@/utils"
+import { formatRelativeTime, getDisplayName } from "@/utils"
+import { EditableName } from "@/components/common/EditableName"
+import { setSessionName } from "@/services/dbService"
 
 interface SessionListItemProps {
   session: SessionMeta
   selected: boolean
   onClick: () => void
   onToggleFavorite: () => void
+  onRename?: () => void
 }
 
-export function SessionListItem({ session, selected, onClick, onToggleFavorite }: SessionListItemProps) {
-  const title = session.title || session.projectDir?.split(/[\\/]/).pop() || session.sessionId
+export function SessionListItem({ session, selected, onClick, onToggleFavorite, onRename }: SessionListItemProps) {
+  const displayName = getDisplayName(session)
   const lastActive = session.lastActiveAt || session.createdAt
 
   return (
@@ -26,12 +29,17 @@ export function SessionListItem({ session, selected, onClick, onToggleFavorite }
     >
       {/* 标题和收藏 */}
       <div className="flex items-start justify-between gap-2 mb-2">
-        <h3 className={cn(
-          "font-medium text-sm leading-snug truncate min-w-0",
-          selected ? "text-violet-900" : "text-gray-900"
-        )}>
-          {title}
-        </h3>
+        <EditableName
+          name={displayName}
+          onSave={async (newName) => {
+            await setSessionName(session.sessionId, newName)
+            onRename?.()
+          }}
+          className={cn(
+            "font-medium text-sm leading-snug min-w-0",
+            selected ? "text-violet-900" : "text-gray-900"
+          )}
+        />
         <button
           onClick={(e) => {
             e.stopPropagation()

@@ -10,6 +10,7 @@ interface WorkspaceGroupItemProps {
     session: any
     selected: boolean
     onToggleFavorite: () => void
+    onRename?: () => void
   }>
   onSelectSession: (sessionId: string) => void
   defaultExpanded?: boolean
@@ -47,13 +48,14 @@ export function WorkspaceGroupItem({
       {/* 分组内容 */}
       {expanded && (
         <div className="p-2 space-y-2 bg-white">
-          {sessions.map(({ session, selected, onToggleFavorite }) => (
+          {sessions.map(({ session, selected, onToggleFavorite, onRename }) => (
             <SessionListItem
               key={session.sessionId}
               session={session}
               selected={selected}
               onClick={() => onSelectSession(session.sessionId)}
               onToggleFavorite={onToggleFavorite}
+              onRename={onRename}
             />
           ))}
         </div>
