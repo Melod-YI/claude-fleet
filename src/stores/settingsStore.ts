@@ -1,20 +1,27 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
-import type { AppSettings, FavoritePath, TerminalType } from '@/types'
-import { FAVORITE_PATH_CONFIG } from '@/types'
+import {
+  setSetting,
+  getAllSettings,
+  recordPathUsage,
+  removeFavoritePath,
+  getSortedFavoritePaths,
+  FavoritePath,
+} from '@/services/dbService'
+import type { AppSettings, TerminalType } from '@/types'
 
 interface SettingsState extends AppSettings {
-  // 常用路径操作
-  recordPathUsage: (path: string) => void
-  removeFavoritePath: (path: string) => void
-  // 设置操作
-  setDefaultTimeRange: (range: '3d' | '7d' | '30d' | 'all') => void
-  setNotificationSound: (enabled: boolean) => void
-  setNotificationDesktop: (enabled: boolean) => void
-  setNotificationSoundFile: (filename: string) => void
-  setTheme: (theme: 'light' | 'dark' | 'system') => void
-  setTerminalType: (type: TerminalType) => void
-  // 获取排序后的常用路径
+  initialized: boolean
+
+  // Actions
+  initialize: () => Promise<void>
+  recordPathUsage: (path: string) => Promise<void>
+  removeFavoritePath: (path: string) => Promise<void>
+  setDefaultTimeRange: (range: '3d' | '7d' | '30d' | 'all') => Promise<void>
+  setNotificationSound: (enabled: boolean) => Promise<void>
+  setNotificationDesktop: (enabled: boolean) => Promise<void>
+  setNotificationSoundFile: (filename: string) => Promise<void>
+  setTheme: (theme: 'light' | 'dark' | 'system') => Promise<void>
+  setTerminalType: (type: TerminalType) => Promise<void>
   getSortedFavoritePaths: () => FavoritePath[]
 }
 
@@ -23,10 +30,98 @@ const DEFAULT_SETTINGS: AppSettings = {
   defaultTimeRange: '30d',
   notificationSound: true,
   notificationDesktop: true,
-  notificationSoundFile: '',  // 空表示使用默认
+  notificationSoundFile: '',
   theme: 'system',
   terminalType: 'wezterm',
 }
+
+export const useSettingsStore = create<SettingsState>()((set, get) => ({
+  ...DEFAULT_SETTINGS,
+  initialized: false,
+
+  initialize: async () => {
+    try {
+      const settings = await getAllSettings()
+
+      const parsed: Partial<AppSettings> = {}
+
+      if (settings['defaultTimeRange']) {
+        parsed.defaultTimeRange = settings['defaultTimeRange'] as '3d' | '7d' | '30d' | 'all'
+      }
+      if (settings['notificationSound']) {
+        parsed.notificationSound = settings['notificationSound'] === 'true'
+      }
+      if (settings['notificationDesktop']) {
+        parsed.notificationDesktop = settings['notificationDesktop'] === 'true'
+      }
+      if (settings['notificationSoundFile']) {
+        parsed.notificationSoundFile = settings['notificationSoundFile']
+      }
+      if (settings['theme']) {
+        parsed.theme = settings['theme'] as 'light' | 'dark' | 'system'
+      }
+      if (settings['terminalType']) {
+        parsed.terminalType = settings['terminalType'] as TerminalType
+      }
+
+      const paths = await getSortedFavoritePaths()
+      parsed.favoritePaths = { paths }
+
+      set({ ...DEFAULT_SETTINGS, ...parsed, initialized: true })
+    } catch (e) {
+      console.error('初始化设置失败:', e)
+      set({ ...DEFAULT_SETTINGS, initialized: true })
+    }
+  },
+
+  recordPathUsage: async (path: string) => {
+    const normalized = normalizePath(path)
+    await recordPathUsage(normalized)
+    const paths = await getSortedFavoritePaths()
+    set({ favoritePaths: { paths } })
+  },
+
+  removeFavoritePath: async (path: string) => {
+    const normalized = normalizePath(path)
+    await removeFavoritePath(normalized)
+    const paths = await getSortedFavoritePaths()
+    set({ favoritePaths: { paths } })
+  },
+
+  setDefaultTimeRange: async (range) => {
+    await setSetting('defaultTimeRange', range)
+    set({ defaultTimeRange: range })
+  },
+
+  setNotificationSound: async (enabled) => {
+    await setSetting('notificationSound', enabled.toString())
+    set({ notificationSound: enabled })
+  },
+
+  setNotificationDesktop: async (enabled) => {
+    await setSetting('notificationDesktop', enabled.toString())
+    set({ notificationDesktop: enabled })
+  },
+
+  setNotificationSoundFile: async (filename) => {
+    await setSetting('notificationSoundFile', filename)
+    set({ notificationSoundFile: filename })
+  },
+
+  setTheme: async (theme) => {
+    await setSetting('theme', theme)
+    set({ theme })
+  },
+
+  setTerminalType: async (type) => {
+    await setSetting('terminalType', type)
+    set({ terminalType: type })
+  },
+
+  getSortedFavoritePaths: () => {
+    return get().favoritePaths.paths
+  },
+}))
 
 /**
  * 标准化路径（去除末尾斜杠、统一大小写等）
@@ -43,116 +138,3 @@ function normalizePath(path: string): string {
   }
   return normalized
 }
-
-/**
- * 计算路径排序分数
- * 综合考虑：最近使用时间 + 使用频率
- */
-function calculatePathScore(path: FavoritePath): number {
-  const now = Date.now()
-  const daysSinceLastUse = (now - path.lastUsedAt) / (1000 * 60 * 60 * 24)
-
-  // 时间衰减：超过 decayDays 后权重衰减
-  const recencyDecayDays = FAVORITE_PATH_CONFIG.recencyDecayDays
-  const recencyFactor = Math.exp(-daysSinceLastUse / recencyDecayDays)
-
-  // 使用次数归一化（log 函数避免次数差异过大）
-  const frequencyFactor = Math.log10(path.useCount + 1) / Math.log10(100)
-
-  // 综合分数
-  const score =
-    recencyFactor * FAVORITE_PATH_CONFIG.recencyWeight +
-    frequencyFactor * FAVORITE_PATH_CONFIG.frequencyWeight
-
-  return score
-}
-
-/**
- * 排序常用路径并限制数量
- */
-function sortAndLimitPaths(paths: FavoritePath[]): FavoritePath[] {
-  // 按分数降序排序
-  const sorted = [...paths]
-    .sort((a, b) => calculatePathScore(b) - calculatePathScore(a))
-    .slice(0, FAVORITE_PATH_CONFIG.maxDisplay)
-
-  return sorted
-}
-
-export const useSettingsStore = create<SettingsState>()(
-  persist(
-    (set, get) => ({
-      ...DEFAULT_SETTINGS,
-
-      /**
-       * 记录路径使用（新建 session 时调用）
-       * - 标准化路径
-       * - 更新使用次数和时间
-       * - 去重
-       */
-      recordPathUsage: (path: string) => {
-        const normalized = normalizePath(path)
-        const now = Date.now()
-        const existingPaths = get().favoritePaths.paths
-
-        // 查找是否已存在
-        const existingIndex = existingPaths.findIndex(
-          (p) => normalizePath(p.path) === normalized
-        )
-
-        if (existingIndex >= 0) {
-          // 已存在：更新次数和时间
-          const updatedPaths = [...existingPaths]
-          updatedPaths[existingIndex] = {
-            ...updatedPaths[existingIndex],
-            path: normalized, // 使用标准化路径
-            useCount: updatedPaths[existingIndex].useCount + 1,
-            lastUsedAt: now,
-          }
-          set({ favoritePaths: { paths: updatedPaths } })
-        } else {
-          // 新路径：添加
-          set({
-            favoritePaths: {
-              paths: [
-                ...existingPaths,
-                { path: normalized, useCount: 1, lastUsedAt: now },
-              ],
-            },
-          })
-        }
-      },
-
-      /**
-       * 移除常用路径
-       */
-      removeFavoritePath: (path: string) => {
-        const normalized = normalizePath(path)
-        set((state) => ({
-          favoritePaths: {
-            paths: state.favoritePaths.paths.filter(
-              (p) => normalizePath(p.path) !== normalized
-            ),
-          },
-        }))
-      },
-
-      setDefaultTimeRange: (range) => set({ defaultTimeRange: range }),
-      setNotificationSound: (enabled) => set({ notificationSound: enabled }),
-      setNotificationDesktop: (enabled) => set({ notificationDesktop: enabled }),
-      setNotificationSoundFile: (filename) => set({ notificationSoundFile: filename }),
-      setTheme: (theme) => set({ theme }),
-      setTerminalType: (type) => set({ terminalType: type }),
-
-      /**
-       * 获取排序后的常用路径（用于显示）
-       */
-      getSortedFavoritePaths: () => {
-        return sortAndLimitPaths(get().favoritePaths.paths)
-      },
-    }),
-    {
-      name: 'claude-fleet-settings',
-    }
-  )
-)
