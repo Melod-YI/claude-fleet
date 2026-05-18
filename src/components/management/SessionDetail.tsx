@@ -150,6 +150,7 @@ export function SessionDetail({
 
       {/* 对话历史 */}
       <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+        {/* 对话记录标题 */}
         <div className="flex items-center justify-between px-4 py-2 border-b bg-white min-w-0">
           <h3 className="text-sm font-medium text-gray-700 truncate">对话记录</h3>
           <Button
@@ -161,10 +162,14 @@ export function SessionDetail({
             <RefreshCw className="w-4 h-4" />
           </Button>
         </div>
-        <ConversationView
-          messages={conversationMessages}
-          loading={messagesLoading}
-        />
+
+        {/* ConversationView - 添加 flex-1 min-h-0 包裹 */}
+        <div className="flex-1 min-h-0 min-w-0">
+          <ConversationView
+            messages={conversationMessages}
+            loading={messagesLoading}
+          />
+        </div>
       </div>
 
       <ConfirmDialog
