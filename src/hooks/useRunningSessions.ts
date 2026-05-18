@@ -15,6 +15,7 @@ export interface RunningSession {
   away_summary?: string
   away_summary_at?: number
   last_user_input?: string
+  custom_name?: string       // Claude Fleet 自定义名称
 }
 
 export function useRunningSessions() {

@@ -13,6 +13,7 @@ export interface SessionMeta {
   resumeCommand?: string;      // e.g., "claude --resume <sessionId>"
   // Client-side only
   isFavorite?: boolean;
+  customName?: string;         // Claude Fleet 自定义名称
 }
 
 // Session message (aligned with cc-switch)
