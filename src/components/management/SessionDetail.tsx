@@ -7,8 +7,10 @@ import { useFavoriteStore } from "@/stores"
 import { resumeInTerminal } from "@/services"
 import { ConfirmDialog } from "@/components/dialogs"
 import { Star, Trash2, Copy, Check, RefreshCw, Play, Clock } from "lucide-react"
-import { formatRelativeTime } from "@/utils"
+import { formatRelativeTime, getDisplayName } from "@/utils"
 import { PathHoverDisplay } from "@/components/common/PathHoverDisplay"
+import { EditableName } from "@/components/common/EditableName"
+import { setSessionName } from "@/services/dbService"
 
 interface SessionDetailProps {
   session: SessionMeta
@@ -25,7 +27,7 @@ export function SessionDetail({
   onDelete,
   onRefresh,
 }: SessionDetailProps) {
-  const title = session.title || session.projectDir?.split(/[\\/]/).pop() || session.sessionId
+  const displayName = getDisplayName(session)
   const [copied, setCopied] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const { toggleFavorite } = useFavoriteStore()
@@ -41,7 +43,7 @@ export function SessionDetail({
     try {
       const legacySession = {
         id: session.sessionId,
-        name: title,
+        name: displayName,
         workingDirectory: session.projectDir || "",
         status: 'idle' as const,
         createdAt: session.createdAt ? new Date(session.createdAt).toISOString() : "",
@@ -76,7 +78,13 @@ export function SessionDetail({
       <div className="px-4 py-3 border-b bg-gray-50/50">
         {/* 标题行 */}
         <div className="flex items-center gap-3 mb-2 min-w-0">
-          <h2 className="text-lg font-semibold text-gray-900 truncate min-w-0">{title}</h2>
+          <EditableName
+            name={displayName}
+            onSave={async (newName) => {
+              await setSessionName(session.sessionId, newName)
+            }}
+            className="text-lg font-semibold text-gray-900 min-w-0"
+          />
           <div className="flex items-center gap-1.5 shrink-0 ml-auto">
             <Button
               variant="default"
@@ -177,7 +185,7 @@ export function SessionDetail({
         onClose={() => setShowDeleteConfirm(false)}
         onConfirm={() => onDelete(session.sessionId)}
         title="删除 Session"
-        description={`确定要删除 "${title}" 吗？此操作不可撤销。`}
+        description={`确定要删除 "${displayName}" 吗？此操作不可撤销。`}
         confirmText="删除"
         variant="destructive"
       />
