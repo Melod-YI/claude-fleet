@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react"
 import { SessionList } from "./SessionList"
 import { SessionDetail } from "./SessionDetail"
+import { GroupedSessionList } from "./GroupedSessionList"
 import { NewSessionDialog } from "@/components/dialogs"
 import { useSessionsQuery, useSessionMessagesQuery, useDeleteSessionMutation } from "@/lib/query"
 import { useSessionSearch } from "@/hooks/useSessionSearch"
@@ -9,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Toggle } from "@/components/common"
 import { TimeRangeSelect } from "./TimeRangeSelect"
-import { Plus, RefreshCw, Search, ChevronRight } from "lucide-react"
+import { Plus, RefreshCw, Search, ChevronRight, List, FolderTree } from "lucide-react"
 import type { SessionMeta } from "@/types"
 
 export function ManagementTab() {
@@ -18,6 +19,7 @@ export function ManagementTab() {
   const [searchQuery, setSearchQuery] = useState("")
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(true)
   const [timeRange, setTimeRange] = useState<'3d' | '7d' | '30d' | 'all'>('30d')
+  const [viewMode, setViewMode] = useState<'list' | 'grouped'>('list')
 
   const { data: sessionsData, isLoading: sessionsLoading, refetch: refetchSessions } = useSessionsQuery()
   const { data: messages, isLoading: messagesLoading, refetch: refetchMessages } =
@@ -116,6 +118,30 @@ export function ManagementTab() {
           />
         )}
 
+        {/* 视图切换按钮（仅收藏模式） */}
+        {showFavoritesOnly && (
+          <div className="flex items-center gap-1">
+            <Button
+              variant={viewMode === 'list' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('list')}
+              className="h-9"
+              title="列表视图"
+            >
+              <List className="w-4 h-4" />
+            </Button>
+            <Button
+              variant={viewMode === 'grouped' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('grouped')}
+              className="h-9"
+              title="分组视图"
+            >
+              <FolderTree className="w-4 h-4" />
+            </Button>
+          </div>
+        )}
+
         {/* 操作按钮 */}
         <Button
           variant="outline"
@@ -141,13 +167,25 @@ export function ManagementTab() {
       <div className="flex-1 flex min-h-0 overflow-hidden">
         {/* 左侧列表 */}
         <div className="w-[320px] min-w-[320px] border-r border-gray-200 flex flex-col bg-gray-50 shadow-sm">
-          <SessionList
-            sessions={filteredSessions}
-            selectedSessionId={selectedSession?.sessionId || null}
-            onSelectSession={handleSelectSession}
-            onToggleFavorite={toggleFavorite}
-            loading={sessionsLoading}
-          />
+          {viewMode === 'list' || !showFavoritesOnly ? (
+            <SessionList
+              sessions={filteredSessions}
+              selectedSessionId={selectedSession?.sessionId || null}
+              onSelectSession={handleSelectSession}
+              onToggleFavorite={toggleFavorite}
+              loading={sessionsLoading}
+            />
+          ) : (
+            <GroupedSessionList
+              sessions={filteredSessions}
+              selectedSessionId={selectedSession?.sessionId || null}
+              onSelectSession={(sessionId) => {
+                const session = filteredSessions.find(s => s.sessionId === sessionId)
+                if (session) handleSelectSession(session)
+              }}
+              onToggleFavorite={toggleFavorite}
+            />
+          )}
         </div>
 
         {/* 右侧详情 */}
