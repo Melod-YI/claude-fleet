@@ -38,6 +38,8 @@ pub struct RunningSession {
     pub away_summary_at: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_user_input: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_name: Option<String>,  // Claude Fleet 自定义名称
 }
 
 /// 全局运行中 Session 状态（PID 作为 key，因为 sessionId 会因 resume 变化）
@@ -182,6 +184,7 @@ pub fn add_running_session_from_file(content: &SessionFileContent) -> Result<(),
         away_summary: None,
         away_summary_at: None,
         last_user_input: None,
+        custom_name: None,
     };
 
     info!("[add_running_session_from_file] 创建 RunningSession: id={}, pid={}, status={}, cwd={}",

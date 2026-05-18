@@ -20,6 +20,8 @@ pub struct SessionMeta {
     pub source_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resume_command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_name: Option<String>,  // Claude Fleet 自定义名称
 }
 
 /// Session message aligned with cc-switch
