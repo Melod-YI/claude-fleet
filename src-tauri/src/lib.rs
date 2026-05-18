@@ -1,5 +1,6 @@
 mod utils;
 mod commands;
+mod db;
 
 use commands::session::{
     init_running,
