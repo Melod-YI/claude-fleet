@@ -132,6 +132,7 @@ pub fn get_sound_data(app: tauri::AppHandle, filename: String) -> Result<String,
 }
 
 /// 获取音频目录路径（用于外部音频文件）
+#[allow(unused_variables)]
 fn get_sounds_dir(app: &tauri::AppHandle) -> PathBuf {
     #[cfg(debug_assertions)]
     {

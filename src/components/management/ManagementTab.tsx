@@ -166,7 +166,7 @@ export function ManagementTab() {
       {/* 下方左右布局 */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
         {/* 左侧列表 */}
-        <div className="w-[320px] min-w-[320px] border-r border-gray-200 flex flex-col bg-gray-50 shadow-sm">
+        <div className="w-[320px] min-w-[320px] border-r border-gray-200 flex flex-col bg-gray-50 shadow-sm overflow-hidden">
           {viewMode === 'list' || !showFavoritesOnly ? (
             <SessionList
               sessions={filteredSessions}

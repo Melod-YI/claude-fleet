@@ -12,16 +12,15 @@ interface GroupedSessionListProps {
   onRename?: (sessionId: string) => void
 }
 
-function extractWorkspaceName(sourcePath?: string): string {
-  if (!sourcePath) return '未知项目'
+/**
+ * 从项目目录路径提取最后一层文件夹名作为显示名
+ * 例如: C:\workspace\claude-fleet-sp -> claude-fleet-sp
+ */
+function extractDisplayName(projectDir?: string): string {
+  if (!projectDir) return '未知项目'
 
-  const parts = sourcePath.split(/[\\/]/)
-  const projectsIndex = parts.findIndex(p => p === 'projects')
-  if (projectsIndex >= 0 && parts.length > projectsIndex + 1) {
-    return parts[projectsIndex + 1]
-  }
-
-  return '未知项目'
+  const parts = projectDir.split(/[\\/]/).filter(Boolean)
+  return parts.pop() || '未知项目'
 }
 
 export function GroupedSessionList({
@@ -32,20 +31,25 @@ export function GroupedSessionList({
   onRename,
 }: GroupedSessionListProps) {
   const grouped = useMemo(() => {
-    const groups: Map<string, SessionMeta[]> = new Map()
+    const groups: Map<string, { displayName: string; sessions: SessionMeta[] }> = new Map()
 
     for (const session of sessions) {
-      const workspace = extractWorkspaceName(session.sourcePath)
-      if (!groups.has(workspace)) {
-        groups.set(workspace, [])
+      // 使用 projectDir 作为分组依据
+      const workspacePath = session.projectDir || ''
+      if (!groups.has(workspacePath)) {
+        groups.set(workspacePath, {
+          displayName: extractDisplayName(workspacePath),
+          sessions: [],
+        })
       }
-      groups.get(workspace)!.push(session)
+      groups.get(workspacePath)!.sessions.push(session)
     }
 
     return Array.from(groups.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([workspaceName, sessionList]) => ({
-        workspaceName,
+      .sort((a, b) => a[1].displayName.localeCompare(b[1].displayName))
+      .map(([workspacePath, { displayName, sessions: sessionList }]) => ({
+        workspacePath,
+        workspaceName: displayName,
         sessions: sessionList.sort((a, b) =>
           (b.lastActiveAt || 0) - (a.lastActiveAt || 0)
         ),
@@ -53,11 +57,12 @@ export function GroupedSessionList({
   }, [sessions])
 
   return (
-    <div className="space-y-3">
-      {grouped.map(({ workspaceName, sessions: groupSessions }) => (
+    <div className="flex-1 overflow-y-auto p-3 space-y-3">
+      {grouped.map(({ workspaceName, workspacePath, sessions: groupSessions }) => (
         <WorkspaceGroupItem
-          key={workspaceName}
+          key={workspacePath || workspaceName}
           workspaceName={workspaceName}
+          workspacePath={workspacePath}
           sessions={groupSessions.map(session => ({
             session,
             selected: selectedSessionId === session.sessionId,
@@ -65,7 +70,7 @@ export function GroupedSessionList({
             onRename: onRename ? () => onRename(session.sessionId) : undefined,
           }))}
           onSelectSession={onSelectSession}
-          defaultExpanded={true}
+          defaultExpanded={false}
         />
       ))}
 

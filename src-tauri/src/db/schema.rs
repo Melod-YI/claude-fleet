@@ -29,50 +29,35 @@ pub fn get_connection() -> Result<Connection> {
     Connection::open(&db_path)
 }
 
-/// 初始化数据库表结构
-pub fn init_database() -> Result<()> {
-    info!("[init_database] 开始初始化数据库");
+/// 初始化数据库表（创建缺失的表）
+pub fn init_tables() -> Result<()> {
+    info!("[init_tables] 开始初始化数据库表");
     let conn = get_connection()?;
 
-    // Session 自定义名称表
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS sessions_meta (
-            session_id    TEXT PRIMARY KEY,
-            custom_name   TEXT,
-            created_at    INTEGER,
-            updated_at    INTEGER
-        )",
-        [],
-    )?;
-
-    // 收藏列表表
-    conn.execute(
+    // 使用 IF NOT EXISTS 确保只创建缺失的表，已存在的表不受影响
+    conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS favorites (
-            session_id    TEXT PRIMARY KEY,
-            added_at      INTEGER
-        )",
-        [],
+            session_id TEXT PRIMARY KEY,
+            added_at INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
+        CREATE TABLE IF NOT EXISTS sessions_meta (
+            session_id TEXT PRIMARY KEY,
+            custom_name TEXT,
+            created_at INTEGER,
+            updated_at INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS favorite_paths (
+            path TEXT PRIMARY KEY,
+            use_count INTEGER,
+            last_used_at INTEGER
+        );"
     )?;
 
-    // 常用路径表
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS favorite_paths (
-            path          TEXT PRIMARY KEY,
-            use_count     INTEGER DEFAULT 1,
-            last_used_at  INTEGER
-        )",
-        [],
-    )?;
-
-    // 应用设置表（KV 存储）
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS app_settings (
-            key           TEXT PRIMARY KEY,
-            value         TEXT
-        )",
-        [],
-    )?;
-
-    info!("[init_database] 数据库初始化完成，路径: {}", get_db_path().display());
+    info!("[init_tables] 数据库表初始化完成");
     Ok(())
 }
+

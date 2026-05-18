@@ -42,6 +42,14 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     utils::logger::init_logging();
     info!("[setup] 日志系统初始化完成，日志目录: {}", utils::logger::get_log_dir().display());
 
+    // 初始化数据库表（确保所有表存在）
+    info!("[setup] 步骤0: 初始化数据库表");
+    if let Err(e) = db::schema::init_tables() {
+        error!("[setup] 初始化数据库表失败: {}", e);
+    } else {
+        info!("[setup] 数据库表初始化成功");
+    }
+
     let app_handle = app.handle();
 
     // 初始化运行中 session 列表（扫描 sessions 目录）

@@ -16,7 +16,7 @@ pub fn read_head_tail_lines(
     head_n: usize,
     tail_n: usize,
 ) -> io::Result<(Vec<String>, Vec<String>)> {
-    use tracing::{debug, warn};
+    use tracing::debug;
     debug!("[read_head_tail_lines] 开始: path={}, head_n={}, tail_n={}", path.display(), head_n, tail_n);
 
     let file = File::open(path)?;
