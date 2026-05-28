@@ -1,4 +1,4 @@
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { createPortal } from "react-dom"
 import { cn } from "@/lib/utils"
 import { Bookmark } from "lucide-react"
@@ -16,42 +16,56 @@ export function PathCard({ path, onPinToggle, onDelete, onSelect }: PathCardProp
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 })
   const cardRef = useRef<HTMLDivElement>(null)
 
-  // 显示完整路径
-  const displayPath = path.path
-
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
 
-    let x = e.clientX
-    let y = e.clientY
-
-    // 边界检查
-    const menuWidth = 140
-    const menuHeight = 80
-    if (x + menuWidth > window.innerWidth) {
-      x = window.innerWidth - menuWidth - 10
-    }
-    if (y + menuHeight > window.innerHeight) {
-      y = window.innerHeight - menuHeight - 10
-    }
-
-    setMenuPos({ x, y })
+    // 记录鼠标点击位置
+    setMenuPos({ x: e.clientX, y: e.clientY })
     setShowMenu(true)
   }
+
+  // 点击外部关闭
+  useEffect(() => {
+    if (!showMenu) return
+
+    const handleGlobalClick = () => {
+      setShowMenu(false)
+    }
+
+    // 延迟添加监听
+    const timer = setTimeout(() => {
+      document.addEventListener('click', handleGlobalClick)
+    }, 0)
+
+    return () => {
+      clearTimeout(timer)
+      document.removeEventListener('click', handleGlobalClick)
+    }
+  }, [showMenu])
+
+  // ESC 关闭
+  useEffect(() => {
+    if (!showMenu) return
+
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowMenu(false)
+      }
+    }
+
+    document.addEventListener('keydown', handleEsc)
+    return () => document.removeEventListener('keydown', handleEsc)
+  }, [showMenu])
 
   const handleDelete = () => {
     setShowMenu(false)
     onDelete()
   }
 
-  const handleCopyPath = () => {
+  const handleCopy = () => {
     setShowMenu(false)
     navigator.clipboard.writeText(path.path)
-  }
-
-  const closeMenu = () => {
-    setShowMenu(false)
   }
 
   return (
@@ -59,7 +73,7 @@ export function PathCard({ path, onPinToggle, onDelete, onSelect }: PathCardProp
       <div
         ref={cardRef}
         className={cn(
-          "inline-flex items-center rounded overflow-hidden cursor-pointer",
+          "inline-flex items-center rounded overflow-hidden",
           path.pinned
             ? "border-2 border-violet-500 bg-violet-50"
             : "border border-gray-200 bg-white hover:bg-gray-50"
@@ -70,6 +84,7 @@ export function PathCard({ path, onPinToggle, onDelete, onSelect }: PathCardProp
         <button
           onClick={(e) => {
             e.stopPropagation()
+            setShowMenu(false)
             onPinToggle()
           }}
           className={cn(
@@ -85,55 +100,50 @@ export function PathCard({ path, onPinToggle, onDelete, onSelect }: PathCardProp
               "w-4 h-4",
               path.pinned
                 ? "text-violet-600 fill-violet-600"
-                : "text-gray-400 hover:text-violet-600"
+                : "text-gray-400"
             )}
           />
         </button>
 
         {/* 路径名称 */}
         <span
-          onClick={onSelect}
-          className="px-3 py-1 text-xs hover:underline whitespace-nowrap"
+          onClick={(e) => {
+            e.stopPropagation()
+            setShowMenu(false)
+            onSelect()
+          }}
+          className="px-2 py-1 text-xs hover:underline cursor-pointer"
         >
-          {displayPath}
+          {path.path}
         </span>
       </div>
 
-      {/* 右键菜单 - 使用 backdrop 确保能接收点击 */}
+      {/* 右键菜单 - Portal 到 body */}
       {showMenu && createPortal(
-        <>
-          {/* 透明 backdrop - 拦截所有外部点击 */}
-          <div
-            className="fixed inset-0 z-[100]"
-            onClick={closeMenu}
-            onContextMenu={(e) => {
-              e.preventDefault()
-              closeMenu()
-            }}
-          />
-          {/* 菜单内容 - 在 backdrop 之上 */}
-          <div
-            className="fixed bg-white border rounded-lg shadow-lg py-1 z-[101]"
-            style={{
-              left: menuPos.x,
-              top: menuPos.y,
-              minWidth: "140px"
-            }}
+        <div
+          className="fixed bg-white border rounded-lg shadow-xl py-1 z-[99999]"
+          style={{
+            left: menuPos.x,
+            top: menuPos.y,
+          }}
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <button
+            type="button"
+            onClick={handleDelete}
+            className="block w-full px-4 py-2 text-sm text-left hover:bg-red-50 hover:text-red-600"
           >
-            <button
-              onClick={handleDelete}
-              className="w-full px-3 py-2 text-sm text-left hover:bg-red-50 hover:text-red-600 transition-colors"
-            >
-              删除此路径
-            </button>
-            <button
-              onClick={handleCopyPath}
-              className="w-full px-3 py-2 text-sm text-left hover:bg-gray-100 text-gray-700 transition-colors"
-            >
-              复制完整路径
-            </button>
-          </div>
-        </>,
+            删除此路径
+          </button>
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="block w-full px-4 py-2 text-sm text-left hover:bg-gray-100 text-gray-700"
+          >
+            复制完整路径
+          </button>
+        </div>,
         document.body
       )}
     </>
