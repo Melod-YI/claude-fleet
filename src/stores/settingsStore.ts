@@ -5,6 +5,7 @@ import {
   recordPathUsage,
   removeFavoritePath,
   getSortedFavoritePaths,
+  togglePinPath,
   FavoritePath,
 } from '@/services/dbService'
 import type { AppSettings, TerminalType } from '@/types'
@@ -16,6 +17,7 @@ interface SettingsState extends AppSettings {
   initialize: () => Promise<void>
   recordPathUsage: (path: string) => Promise<void>
   removeFavoritePath: (path: string) => Promise<void>
+  togglePinPath: (path: string) => Promise<void>
   setDefaultTimeRange: (range: '3d' | '7d' | '30d' | 'all') => Promise<void>
   setNotificationSound: (enabled: boolean) => Promise<void>
   setNotificationDesktop: (enabled: boolean) => Promise<void>
@@ -84,6 +86,13 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   removeFavoritePath: async (path: string) => {
     const normalized = normalizePath(path)
     await removeFavoritePath(normalized)
+    const paths = await getSortedFavoritePaths()
+    set({ favoritePaths: { paths } })
+  },
+
+  togglePinPath: async (path: string) => {
+    const normalized = normalizePath(path)
+    await togglePinPath(normalized)
     const paths = await getSortedFavoritePaths()
     set({ favoritePaths: { paths } })
   },
