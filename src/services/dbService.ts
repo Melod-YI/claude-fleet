@@ -54,6 +54,10 @@ export async function getSortedFavoritePaths(): Promise<FavoritePath[]> {
   return await invoke('get_sorted_favorite_paths_cmd')
 }
 
+export async function togglePinPath(path: string): Promise<FavoritePath> {
+  return await invoke('toggle_pin_path_cmd', { path })
+}
+
 // ========== Settings ==========
 
 export async function getSetting(key: string): Promise<string | null> {
