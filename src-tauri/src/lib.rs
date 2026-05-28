@@ -26,7 +26,7 @@ use commands::sound::{get_available_sounds, get_sound_data};
 // 数据库命令
 use db::sessions_meta::{set_session_name_cmd, get_session_name_cmd, delete_session_name_cmd};
 use db::favorites::{add_favorite_cmd, remove_favorite_cmd, is_favorite_cmd, get_all_favorites_cmd};
-use db::favorite_paths::{record_path_usage_cmd, remove_favorite_path_cmd, get_sorted_favorite_paths_cmd};
+use db::favorite_paths::{record_path_usage_cmd, remove_favorite_path_cmd, get_sorted_favorite_paths_cmd, toggle_pin_path_cmd};
 use db::settings::{get_setting_cmd, set_setting_cmd, get_all_settings_cmd};
 use db::migration::needs_migration_cmd;
 use tracing::{info, error};
@@ -140,6 +140,7 @@ pub fn run() {
             record_path_usage_cmd,
             remove_favorite_path_cmd,
             get_sorted_favorite_paths_cmd,
+            toggle_pin_path_cmd,
             get_setting_cmd,
             set_setting_cmd,
             get_all_settings_cmd,
