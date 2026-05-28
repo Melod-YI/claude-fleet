@@ -157,7 +157,7 @@ export function SessionDetail({
       </div>
 
       {/* 对话历史 */}
-      <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
         {/* 对话记录标题 */}
         <div className="flex items-center justify-between px-4 py-2 border-b bg-white min-w-0">
           <h3 className="text-sm font-medium text-gray-700 truncate">对话记录</h3>
@@ -172,7 +172,7 @@ export function SessionDetail({
         </div>
 
         {/* ConversationView - 添加 flex-1 min-h-0 包裹 */}
-        <div className="flex-1 min-h-0 min-w-0">
+        <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
           <ConversationView
             messages={conversationMessages}
             loading={messagesLoading}
