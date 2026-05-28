@@ -57,6 +57,19 @@ pub fn init_tables() -> Result<()> {
         );"
     )?;
 
+    // 迁移：为 favorite_paths 表添加 pinned 和 pinned_at 列（如果不存在）
+    let pinned_exists: bool = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('favorite_paths') WHERE name='pinned'",
+        [],
+        |row| row.get::<_, i64>(0),
+    )? > 0;
+
+    if !pinned_exists {
+        conn.execute("ALTER TABLE favorite_paths ADD COLUMN pinned INTEGER DEFAULT 0", [])?;
+        conn.execute("ALTER TABLE favorite_paths ADD COLUMN pinned_at INTEGER DEFAULT NULL", [])?;
+        info!("[init_tables] 添加 pinned 和 pinned_at 列");
+    }
+
     info!("[init_tables] 数据库表初始化完成");
     Ok(())
 }
