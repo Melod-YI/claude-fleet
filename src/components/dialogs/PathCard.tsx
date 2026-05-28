@@ -121,11 +121,12 @@ export function PathCard({ path, onPinToggle, onDelete, onSelect }: PathCardProp
       {/* 右键菜单 - Portal 到 body */}
       {showMenu && createPortal(
         <div
-          className="fixed bg-white border rounded-lg shadow-xl py-1 z-[99999]"
+          className="fixed bg-white border rounded-lg shadow-xl py-1 z-[99999] pointer-events-auto"
           style={{
             left: menuPos.x,
             top: menuPos.y,
           }}
+          onPointerDownCapture={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
         >

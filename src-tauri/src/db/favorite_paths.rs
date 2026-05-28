@@ -74,7 +74,7 @@ pub fn get_sorted_favorite_paths() -> Result<Vec<FavoritePath>> {
         .unwrap_or_default()
         .as_millis() as i64;
 
-    // 1. 获取置顶路径（按 pinned_at 降序）
+    // 1. 获取置顶路径（按置顶时间降序，最近置顶的在前）
     let mut stmt = conn.prepare(
         "SELECT path, use_count, last_used_at, pinned, pinned_at
          FROM favorite_paths WHERE pinned = 1
@@ -109,28 +109,37 @@ pub fn get_sorted_favorite_paths() -> Result<Vec<FavoritePath>> {
         })
     })?.collect::<Result<Vec<FavoritePath>>>()?;
 
+    // 计算分数并排序（分数 = 最近使用时间权重 * 时间衰减 + 使用频率权重 * 频率归一化）
     let mut scored: Vec<(FavoritePath, f64)> = unpinned_paths
         .into_iter()
         .map(|p| {
-            let days = (now - p.last_used_at) as f64 / (1000.0 * 60.0 * 60.0 * 24.0);
-            let recency = (-days / RECENCY_DECAY_DAYS).exp();
-            let freq = (p.use_count as f64 + 1.0).log10() / 100.0_f64.log10();
-            (p, recency * RECENCY_WEIGHT + freq * FREQUENCY_WEIGHT)
+            let days_since_used = (now - p.last_used_at) as f64 / (1000.0 * 60.0 * 60.0 * 24.0);
+            let recency_score = (-days_since_used / RECENCY_DECAY_DAYS).exp();
+            let frequency_score = (p.use_count as f64 + 1.0).log10() / 100.0_f64.log10();
+            let total_score = recency_score * RECENCY_WEIGHT + frequency_score * FREQUENCY_WEIGHT;
+            (p, total_score)
         })
         .collect();
 
+    // 按分数降序排序
     scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     let unpinned_sorted: Vec<FavoritePath> = scored.into_iter().map(|(p, _)| p).collect();
 
     info!("[get_sorted_favorite_paths] 非置顶路径数量: {}", unpinned_sorted.len());
 
-    // 3. 合并两部分，最多返回 MAX_DISPLAY 条
-    let mut result = pinned_paths;
-    result.extend(unpinned_sorted);
-    result.truncate(MAX_DISPLAY);
+    // 3. 合并两部分：置顶路径在前，非置顶路径在后
+    let mut result = Vec::with_capacity(MAX_DISPLAY);
 
-    info!("[get_sorted_favorite_paths] 返回路径数量: {}", result.len());
+    // 先添加所有置顶路径（置顶路径应该始终显示）
+    result.extend(pinned_paths);
+
+    // 计算还能添加多少非置顶路径
+    let remaining_slots = MAX_DISPLAY.saturating_sub(result.len());
+    result.extend(unpinned_sorted.into_iter().take(remaining_slots));
+
+    info!("[get_sorted_favorite_paths] 返回路径数量: 置顶={}, 总数={}",
+          result.iter().filter(|p| p.pinned).count(), result.len());
     Ok(result)
 }
 

@@ -48,7 +48,7 @@ export function PathHoverDisplay({ path, displayName, className }: PathHoverDisp
 
       {/* 悬浮层 - hover:flex 让鼠标移到悬浮层时保持显示 */}
       <div className="absolute left-0 top-full hidden group-hover:flex hover:flex items-center gap-2 bg-white border border-gray-200 rounded-md px-3 py-1.5 shadow-md z-10 min-w-[200px]">
-        <span className="text-xs text-gray-600 truncate max-w-[300px]" title={path}>{path}</span>
+        {/* 功能按钮靠左 */}
         <div className="flex items-center gap-1 shrink-0">
           {/* 复制 */}
           <Button
@@ -85,6 +85,8 @@ export function PathHoverDisplay({ path, displayName, className }: PathHoverDisp
             <Code className="w-3 h-3" />
           </Button>
         </div>
+        {/* 完整路径不截断 */}
+        <span className="text-xs text-gray-600 whitespace-nowrap">{path}</span>
       </div>
     </div>
   )

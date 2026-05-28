@@ -426,6 +426,11 @@ pub fn activate_window(hwnd: HWND) -> Result<(), String> {
     info!("[activate_window] 开始激活窗口: HWND={}", hwnd.0 as usize);
 
     unsafe {
+        // 检查窗口状态，避免破坏最大化状态
+        let is_minimized = IsIconic(hwnd).as_bool();
+        let is_maximized = IsZoomed(hwnd).as_bool();
+        info!("[activate_window] 窗口状态: 最小化={}, 最大化={}", is_minimized, is_maximized);
+
         // 先显示窗口
         let _ = ShowWindow(hwnd, SW_SHOW);
 
@@ -446,8 +451,14 @@ pub fn activate_window(hwnd: HWND) -> Result<(), String> {
         // 将窗口置顶
         let _ = BringWindowToTop(hwnd);
 
-        // 确保窗口没有被最小化
-        let _ = ShowWindow(hwnd, SW_RESTORE);
+        // 仅在窗口最小化时恢复，避免破坏最大化状态
+        if is_minimized {
+            info!("[activate_window] 窗口最小化，恢复显示");
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+        } else if is_maximized {
+            info!("[activate_window] 窗口最大化，保持状态");
+            // 最大化窗口不需要 SW_RESTORE，保持最大化
+        }
     }
 
     info!("[activate_window] 完成");
