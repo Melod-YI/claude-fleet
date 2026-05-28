@@ -25,8 +25,25 @@ export function PathCard({ path, onPinToggle, onDelete, onSelect }: PathCardProp
     e.preventDefault()
     // 先关闭所有其他菜单
     document.dispatchEvent(new CustomEvent(CLOSE_ALL_MENUS_EVENT))
-    // 设置菜单位置（相对于点击位置，添加偏移）
-    setMenuPos({ x: e.clientX + 5, y: e.clientY + 5 })
+
+    // 使用鼠标点击位置（clientX/clientY 是相对于视口的坐标）
+    // fixed 定位的元素使用视口坐标是正确的
+    let x = e.clientX
+    let y = e.clientY
+
+    // 确保菜单不超出视口右边界
+    const menuWidth = 140
+    if (x + menuWidth > window.innerWidth) {
+      x = window.innerWidth - menuWidth - 10
+    }
+
+    // 确保菜单不超出视口底部
+    const menuHeight = 80
+    if (y + menuHeight > window.innerHeight) {
+      y = window.innerHeight - menuHeight - 10
+    }
+
+    setMenuPos({ x, y })
     setShowMenu(true)
   }
 
