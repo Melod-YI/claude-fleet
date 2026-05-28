@@ -74,17 +74,42 @@ pub fn get_sorted_favorite_paths() -> Result<Vec<FavoritePath>> {
         .unwrap_or_default()
         .as_millis() as i64;
 
-    let mut stmt = conn.prepare("SELECT path, use_count, last_used_at FROM favorite_paths")?;
+    // 1. 获取置顶路径（按 pinned_at 降序）
+    let mut stmt = conn.prepare(
+        "SELECT path, use_count, last_used_at, pinned, pinned_at
+         FROM favorite_paths WHERE pinned = 1
+         ORDER BY pinned_at DESC"
+    )?;
 
-    let paths = stmt.query_map([], |row| {
+    let pinned_paths: Vec<FavoritePath> = stmt.query_map([], |row| {
         Ok(FavoritePath {
             path: row.get::<_, String>(0)?,
             use_count: row.get::<_, i64>(1)?,
             last_used_at: row.get::<_, i64>(2)?,
+            pinned: true,
+            pinned_at: row.get::<_, Option<i64>>(4)?,
         })
     })?.collect::<Result<Vec<FavoritePath>>>()?;
 
-    let mut scored: Vec<(FavoritePath, f64)> = paths
+    info!("[get_sorted_favorite_paths] 置顶路径数量: {}", pinned_paths.len());
+
+    // 2. 获取非置顶路径并计算分数排序
+    let mut stmt = conn.prepare(
+        "SELECT path, use_count, last_used_at, pinned, pinned_at
+         FROM favorite_paths WHERE pinned = 0"
+    )?;
+
+    let unpinned_paths = stmt.query_map([], |row| {
+        Ok(FavoritePath {
+            path: row.get::<_, String>(0)?,
+            use_count: row.get::<_, i64>(1)?,
+            last_used_at: row.get::<_, i64>(2)?,
+            pinned: false,
+            pinned_at: None,
+        })
+    })?.collect::<Result<Vec<FavoritePath>>>()?;
+
+    let mut scored: Vec<(FavoritePath, f64)> = unpinned_paths
         .into_iter()
         .map(|p| {
             let days = (now - p.last_used_at) as f64 / (1000.0 * 60.0 * 60.0 * 24.0);
@@ -96,7 +121,17 @@ pub fn get_sorted_favorite_paths() -> Result<Vec<FavoritePath>> {
 
     scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-    Ok(scored.into_iter().take(MAX_DISPLAY).map(|(p, _)| p).collect())
+    let unpinned_sorted: Vec<FavoritePath> = scored.into_iter().map(|(p, _)| p).collect();
+
+    info!("[get_sorted_favorite_paths] 非置顶路径数量: {}", unpinned_sorted.len());
+
+    // 3. 合并两部分，最多返回 MAX_DISPLAY 条
+    let mut result = pinned_paths;
+    result.extend(unpinned_sorted);
+    result.truncate(MAX_DISPLAY);
+
+    info!("[get_sorted_favorite_paths] 返回路径数量: {}", result.len());
+    Ok(result)
 }
 
 /// 切换路径置顶状态
