@@ -11,6 +11,8 @@ pub struct FavoritePath {
     pub path: String,
     pub use_count: i64,
     pub last_used_at: i64,
+    pub pinned: bool,
+    pub pinned_at: Option<i64>,
 }
 
 /// 记录路径使用
