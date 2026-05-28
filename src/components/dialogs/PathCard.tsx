@@ -122,7 +122,7 @@ export function PathCard({ path, onPinToggle, onDelete, onSelect }: PathCardProp
           style={{
             left: menuPos.x,
             top: menuPos.y,
-            minWidth: "120px"
+            minWidth: "160px"
           }}
         >
           <button
@@ -130,7 +130,7 @@ export function PathCard({ path, onPinToggle, onDelete, onSelect }: PathCardProp
               setShowMenu(false)
               onDelete()
             }}
-            className="w-full px-3 py-2 text-sm text-left hover:bg-red-50 hover:text-red-600 flex items-center gap-2"
+            className="w-full px-3 py-2 text-sm text-left hover:bg-red-50 hover:text-red-600"
           >
             删除此路径
           </button>
@@ -139,10 +139,14 @@ export function PathCard({ path, onPinToggle, onDelete, onSelect }: PathCardProp
               setShowMenu(false)
               navigator.clipboard.writeText(path.path)
             }}
-            className="w-full px-3 py-2 text-sm text-left hover:bg-gray-50 text-gray-600 flex items-center gap-2"
+            className="w-full px-3 py-2 text-sm text-left hover:bg-gray-50 text-gray-600 border-t"
           >
-            复制完整路径
+            复制路径
           </button>
+          {/* 显示完整路径 */}
+          <div className="px-3 py-1 text-xs text-gray-400 border-t truncate max-w-[200px]">
+            {path.path}
+          </div>
         </div>,
         document.body
       )}
