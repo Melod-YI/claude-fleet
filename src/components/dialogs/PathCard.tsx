@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react"
+import { createPortal } from "react-dom"
 import { cn } from "@/lib/utils"
 import { Bookmark } from "lucide-react"
 import type { FavoritePath } from "@/types"
@@ -114,10 +115,10 @@ export function PathCard({ path, onPinToggle, onDelete, onSelect }: PathCardProp
         {displayName}
       </span>
 
-      {/* 右键菜单 */}
-      {showMenu && (
+      {/* 右键菜单 - 使用 Portal 渲染到 body */}
+      {showMenu && createPortal(
         <div
-          className="fixed bg-white border rounded-lg shadow-lg py-1 z-50"
+          className="fixed bg-white border rounded-lg shadow-lg py-1 z-[100]"
           style={{
             left: menuPos.x,
             top: menuPos.y,
@@ -142,7 +143,8 @@ export function PathCard({ path, onPinToggle, onDelete, onSelect }: PathCardProp
           >
             复制完整路径
           </button>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )
