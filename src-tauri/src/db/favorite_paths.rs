@@ -99,6 +99,64 @@ pub fn get_sorted_favorite_paths() -> Result<Vec<FavoritePath>> {
     Ok(scored.into_iter().take(MAX_DISPLAY).map(|(p, _)| p).collect())
 }
 
+/// 切换路径置顶状态
+pub fn toggle_pin_path(path: &str) -> Result<FavoritePath> {
+    info!("[toggle_pin_path] 切换置顶状态: {}", path);
+    let conn = get_connection()?;
+
+    // 查询当前状态
+    let current: Option<(bool, Option<i64>)> = conn.query_row(
+        "SELECT pinned, pinned_at FROM favorite_paths WHERE path = ?1",
+        [path],
+        |row| Ok((row.get::<_, i64>(0)? != 0, row.get::<_, Option<i64>>(1)?)),
+    ).ok();
+
+    if current.is_none() {
+        return Err(rusqlite::Error::QueryReturnedNoRows);
+    }
+
+    let (is_pinned, _) = current.unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+
+    if is_pinned {
+        // 取消置顶
+        conn.execute(
+            "UPDATE favorite_paths SET pinned = 0, pinned_at = NULL WHERE path = ?1",
+            [path],
+        )?;
+        info!("[toggle_pin_path] 取消置顶: {}", path);
+    } else {
+        // 置顶
+        conn.execute(
+            "UPDATE favorite_paths SET pinned = 1, pinned_at = ?1 WHERE path = ?2",
+            rusqlite::params![&now, path],
+        )?;
+        info!("[toggle_pin_path] 置顶: {}", path);
+    }
+
+    // 返回更新后的记录
+    get_favorite_path_by_path(path)
+}
+
+/// 根据 path 获取单个 FavoritePath
+fn get_favorite_path_by_path(path: &str) -> Result<FavoritePath> {
+    let conn = get_connection()?;
+    conn.query_row(
+        "SELECT path, use_count, last_used_at, pinned, pinned_at FROM favorite_paths WHERE path = ?1",
+        [path],
+        |row| Ok(FavoritePath {
+            path: row.get::<_, String>(0)?,
+            use_count: row.get::<_, i64>(1)?,
+            last_used_at: row.get::<_, i64>(2)?,
+            pinned: row.get::<_, i64>(3)? != 0,
+            pinned_at: row.get::<_, Option<i64>>(4)?,
+        }),
+    )
+}
+
 // Tauri 命令包装
 
 #[tauri::command]
@@ -114,4 +172,9 @@ pub fn remove_favorite_path_cmd(path: String) -> Result<(), String> {
 #[tauri::command]
 pub fn get_sorted_favorite_paths_cmd() -> Result<Vec<FavoritePath>, String> {
     get_sorted_favorite_paths().map_err(|e| format!("获取路径失败: {}", e))
+}
+
+#[tauri::command]
+pub fn toggle_pin_path_cmd(path: String) -> Result<FavoritePath, String> {
+    toggle_pin_path(&path).map_err(|e| format!("切换置顶状态失败: {}", e))
 }
