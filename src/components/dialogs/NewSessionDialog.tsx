@@ -8,12 +8,12 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { cn } from "@/lib/utils"
 import { FolderOpen, Loader2 } from "lucide-react"
 import { open as openDialog } from "@tauri-apps/plugin-dialog"
 import { invoke } from "@tauri-apps/api/core"
 import type { FavoritePath } from "@/types"
 import { useSettingsStore } from "@/stores/settingsStore"
+import { PathCard } from "./PathCard"
 
 interface NewSessionDialogProps {
   open: boolean
@@ -33,6 +33,8 @@ export function NewSessionDialog({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const terminalType = useSettingsStore((state) => state.terminalType)
+  const togglePinPath = useSettingsStore((state) => state.togglePinPath)
+  const removeFavoritePath = useSettingsStore((state) => state.removeFavoritePath)
 
   const handleBrowse = async () => {
     try {
@@ -131,18 +133,13 @@ export function NewSessionDialog({
               <label className="text-sm font-medium text-gray-700">常用路径</label>
               <div className="flex flex-wrap gap-2">
                 {favoritePaths.map((fp) => (
-                  <Button
+                  <PathCard
                     key={fp.path}
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleSelectFavoritePath(fp.path)}
-                    className={cn(
-                      "text-xs",
-                      workingDirectory === fp.path && "border-violet-500 bg-violet-50"
-                    )}
-                  >
-                    {fp.path}
-                  </Button>
+                    path={fp}
+                    onPinToggle={() => togglePinPath(fp.path)}
+                    onDelete={() => removeFavoritePath(fp.path)}
+                    onSelect={() => handleSelectFavoritePath(fp.path)}
+                  />
                 ))}
               </div>
             </div>
