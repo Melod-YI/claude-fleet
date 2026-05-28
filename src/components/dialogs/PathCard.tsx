@@ -3,6 +3,9 @@ import { cn } from "@/lib/utils"
 import { Bookmark } from "lucide-react"
 import type { FavoritePath } from "@/types"
 
+// 全局事件：关闭所有右键菜单
+const CLOSE_ALL_MENUS_EVENT = 'close-all-context-menus'
+
 interface PathCardProps {
   path: FavoritePath
   onPinToggle: () => void
@@ -20,22 +23,34 @@ export function PathCard({ path, onPinToggle, onDelete, onSelect }: PathCardProp
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault()
-    setMenuPos({ x: e.clientX, y: e.clientY })
+    // 先关闭所有其他菜单
+    document.dispatchEvent(new CustomEvent(CLOSE_ALL_MENUS_EVENT))
+    // 设置菜单位置（相对于点击位置，添加偏移）
+    setMenuPos({ x: e.clientX + 5, y: e.clientY + 5 })
     setShowMenu(true)
   }
 
-  const handleClickOutside = (e: MouseEvent) => {
-    if (cardRef.current && !cardRef.current.contains(e.target as Node)) {
-      setShowMenu(false)
+  // 监听全局关闭事件
+  useEffect(() => {
+    const handleClose = () => setShowMenu(false)
+    document.addEventListener(CLOSE_ALL_MENUS_EVENT, handleClose)
+    return () => {
+      document.removeEventListener(CLOSE_ALL_MENUS_EVENT, handleClose)
     }
-  }
+  }, [])
 
+  // 点击外部关闭
   useEffect(() => {
     if (showMenu) {
+      const handleClickOutside = (e: MouseEvent) => {
+        if (cardRef.current && !cardRef.current.contains(e.target as Node)) {
+          setShowMenu(false)
+        }
+      }
       document.addEventListener("click", handleClickOutside)
-    }
-    return () => {
-      document.removeEventListener("click", handleClickOutside)
+      return () => {
+        document.removeEventListener("click", handleClickOutside)
+      }
     }
   }, [showMenu])
 
