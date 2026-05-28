@@ -11,6 +11,8 @@ export interface FavoritePath {
   path: string           // 标准化的路径
   useCount: number       // 使用次数
   lastUsedAt: number     // 最近使用时间戳（毫秒）
+  pinned: boolean        // 是否置顶
+  pinnedAt: number | null // 置顶时间戳，未置顶时为 null
 }
 
 export interface FavoritePaths {

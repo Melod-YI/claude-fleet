@@ -46,6 +46,8 @@ export interface FavoritePath {
   path: string
   useCount: number
   lastUsedAt: number
+  pinned: boolean
+  pinnedAt: number | null
 }
 
 export async function getSortedFavoritePaths(): Promise<FavoritePath[]> {
