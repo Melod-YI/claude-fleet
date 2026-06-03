@@ -11,7 +11,14 @@ use tauri::Emitter;
 use tracing::{info, debug, warn, error};
 use std::time::Instant;
 use crate::utils::claude_data::is_claude_process_running;
-use crate::utils::window_manager::get_window_title_by_pid_chain;
+use crate::utils::window_manager::{
+    get_window_title_by_pid_chain,
+    populate_window_cache_parallel,
+    get_cached_window_title,
+    get_cached_window,
+    clear_window_cache,
+    invalidate_window_cache,
+};
 use crate::utils::claude_session::{extract_away_summary, extract_last_user_input};
 
 /// Session 运行状态（对应 Claude JSON 文件中的三种状态）
@@ -304,6 +311,8 @@ pub fn init_running_sessions() -> Result<Vec<RunningSession>, String> {
     // 清空现有状态
     debug!("[init_running_sessions] 清空 RUNNING_SESSIONS");
     RUNNING_SESSIONS.lock().unwrap().clear();
+    // 清空旧的窗口缓存
+    clear_window_cache();
 
     // 扫描 sessions 目录下的所有 JSON 文件
     let entries = fs::read_dir(&sessions_dir)
@@ -366,6 +375,15 @@ pub fn init_running_sessions() -> Result<Vec<RunningSession>, String> {
     // 启动时立即扫描所有 session 的 jsonl
     info!("[init_running_sessions] 开始扫描 jsonl 文件获取 away_summary 和 last_user_input");
     scan_away_summaries();
+
+    // 后台缓存所有运行中 session 的窗口信息（不阻塞主线程）
+    {
+        let pids: Vec<u32> = RUNNING_SESSIONS.lock().unwrap().keys().cloned().collect();
+        if !pids.is_empty() {
+            info!("[init_running_sessions] 后台缓存 {} 个 session 的窗口信息", pids.len());
+            populate_window_cache_parallel(&pids);
+        }
+    }
 
     let result = get_running_sessions();
     let elapsed = start.elapsed();
@@ -488,9 +506,23 @@ pub fn refresh_session_names() {
         return;
     }
 
-    // 并行获取窗口标题
+    // 并行获取窗口标题（优先从缓存读取，单次 GetWindowTextW 调用）
     let pids: Vec<u32> = sessions_info.iter().map(|(pid, _, _)| *pid).collect();
-    let titles = get_window_titles_parallel(pids);
+    let mut titles: HashMap<u32, Option<String>> = HashMap::new();
+    let mut uncached_pids: Vec<u32> = Vec::new();
+
+    for &pid in &pids {
+        match get_cached_window_title(pid) {
+            Some(title) => { titles.insert(pid, Some(title)); }
+            None => { uncached_pids.push(pid); }
+        }
+    }
+
+    if !uncached_pids.is_empty() {
+        debug!("[refresh_session_names] {} 个 PID 缓存未命中，回退到完整查找", uncached_pids.len());
+        let fallback_titles = get_window_titles_parallel(uncached_pids);
+        titles.extend(fallback_titles);
+    }
 
     // 更新名称（如果窗口标题变化且无自定义名称）
     let mut updated_count = 0;
@@ -593,6 +625,23 @@ pub fn start_polling(app_handle: tauri::AppHandle) {
                 for pid in &dead_pids {
                     info!("[polling_thread] 移除 PID: {}", pid);
                     sessions.remove(pid);
+                    // 清除已退出进程的窗口缓存
+                    invalidate_window_cache(*pid);
+                }
+            }
+
+            // 1b. 后台缓存尚未缓存的 session 窗口信息
+            {
+                let uncached_pids: Vec<u32> = {
+                    let sessions = RUNNING_SESSIONS.lock().unwrap();
+                    sessions.keys()
+                        .filter(|&&pid| get_cached_window(pid).is_none())
+                        .cloned()
+                        .collect()
+                };
+                if !uncached_pids.is_empty() {
+                    debug!("[polling_thread] 为 {} 个未缓存的 PID 填充窗口缓存", uncached_pids.len());
+                    populate_window_cache_parallel(&uncached_pids);
                 }
             }
 

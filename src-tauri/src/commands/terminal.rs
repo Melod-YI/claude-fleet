@@ -41,11 +41,24 @@ pub fn jump_to_terminal_by_pid(process_id: u32) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        debug!("[jump_to_terminal_by_pid] Windows 平台，查找窗口（使用父进程链）");
+        use crate::utils::window_manager::{get_cached_window, resolve_and_cache_window};
+
+        // 快速路径：从缓存获取 HWND（微秒级验证）
+        if let Some(hwnd) = get_cached_window(process_id) {
+            info!("[jump_to_terminal_by_pid] 缓存命中，pid={}", process_id);
+            activate_window(hwnd)?;
+            info!("[jump_to_terminal_by_pid] 完成（缓存命中）");
+            return Ok(());
+        }
+
+        // 慢速路径：缓存未命中，执行完整的 PID 链查找
+        debug!("[jump_to_terminal_by_pid] 缓存未命中，执行 PID 链查找");
         if let Some(hwnd) = find_window_by_pid_chain(process_id) {
+            // 顺便更新缓存，下次跳转可直接命中
+            let _ = resolve_and_cache_window(process_id);
             info!("[jump_to_terminal_by_pid] 找到窗口，激活");
             activate_window(hwnd)?;
-            info!("[jump_to_terminal_by_pid] 完成");
+            info!("[jump_to_terminal_by_pid] 完成（PID 链查找）");
             Ok(())
         } else {
             warn!("[jump_to_terminal_by_pid] 未找到进程 {} 或其父进程对应的终端窗口", process_id);
@@ -69,11 +82,23 @@ pub fn smart_jump_to_terminal(working_directory: String, process_id: Option<u32>
 
     #[cfg(target_os = "windows")]
     {
-        // 尝试 PID 链查找（向上查找父进程直到找到有窗口的进程）
+        use crate::utils::window_manager::{get_cached_window, resolve_and_cache_window};
+
         if let Some(pid) = process_id {
             if pid > 0 {
-                info!("[smart_jump_to_terminal] 尝试 PID 链查找: {}", pid);
+                // 快速路径：从缓存获取 HWND（微秒级验证）
+                if let Some(hwnd) = get_cached_window(pid) {
+                    info!("[smart_jump_to_terminal] 缓存命中，pid={}", pid);
+                    activate_window(hwnd)?;
+                    info!("[smart_jump_to_terminal] 完成（缓存命中）");
+                    return Ok(());
+                }
+
+                // 慢速路径：缓存未命中，执行完整的 PID 链查找
+                info!("[smart_jump_to_terminal] 缓存未命中，执行 PID 链查找: {}", pid);
                 if let Some(hwnd) = find_window_by_pid_chain(pid) {
+                    // 顺便更新缓存，下次跳转可直接命中
+                    let _ = resolve_and_cache_window(pid);
                     info!("[smart_jump_to_terminal] PID 链查找成功，激活窗口");
                     activate_window(hwnd)?;
                     info!("[smart_jump_to_terminal] 完成（通过 PID 链）");

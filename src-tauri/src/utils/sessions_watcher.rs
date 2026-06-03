@@ -250,6 +250,9 @@ fn handle_session_create(path: &PathBuf, app_handle: &tauri::AppHandle) {
     // 立即扫描 jsonl 获取 away_summary 和 last_user_input
     scan_session_jsonl_force(session.pid);
 
+    // 后台缓存新 session 的窗口信息
+    crate::utils::window_manager::populate_window_cache_parallel(&[session.pid]);
+
     // 发送状态变化事件
     emit_sessions_changed(app_handle);
 
@@ -325,6 +328,8 @@ fn handle_session_remove(filename: &str, app_handle: &tauri::AppHandle) {
 
     // 根据 PID 移除 session
     remove_running_session_by_pid(pid);
+    // 清除已移除 session 的窗口缓存
+    crate::utils::window_manager::invalidate_window_cache(pid);
 
     info!("[handle_session_remove] session 移除成功: pid={}", pid);
 

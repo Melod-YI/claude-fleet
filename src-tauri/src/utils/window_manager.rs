@@ -1,4 +1,8 @@
 use std::process::Command;
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::Instant;
+use once_cell::sync::Lazy;
 use tracing::{info, debug, warn, error};
 
 #[cfg(target_os = "windows")]
@@ -7,6 +11,129 @@ use windows::{
     Win32::UI::WindowsAndMessaging::*,
     Win32::UI::Input::KeyboardAndMouse::*,
 };
+
+// --- 窗口 HWND 缓存 ---
+// 缓存已解析的窗口句柄，使跳转终端可以跳过昂贵的 PID 链遍历
+// （10 次 EnumWindows + 10 次 wmic 子进程 → 2 次 Win32 调用验证）
+
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Copy)]
+pub struct WindowCacheEntry {
+    pub hwnd_raw: isize,      // HWND 的原始值（isize 可安全跨线程传递）
+    pub owner_pid: u32,       // 实际拥有窗口的 PID（可能是父进程）
+    pub resolved_at: Instant, // 缓存写入时间
+}
+
+#[cfg(target_os = "windows")]
+static WINDOW_HWND_CACHE: Lazy<Mutex<HashMap<u32, WindowCacheEntry>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// 从缓存获取指定 PID 的窗口句柄，验证 HWND 仍然有效且归属于同一进程
+/// 验证仅需 IsWindow + GetWindowThreadProcessId（微秒级），vs PID 链遍历（200-500ms）
+#[cfg(target_os = "windows")]
+pub fn get_cached_window(pid: u32) -> Option<HWND> {
+    let cache = WINDOW_HWND_CACHE.lock().unwrap();
+    let entry = cache.get(&pid)?;
+
+    let hwnd = HWND(entry.hwnd_raw as *mut _);
+
+    unsafe {
+        if !IsWindow(hwnd).as_bool() {
+            debug!("[window_cache] HWND 失效（IsWindow=false），pid={}", pid);
+            return None;
+        }
+        let mut current_pid: u32 = 0;
+        GetWindowThreadProcessId(hwnd, Some(&mut current_pid));
+        if current_pid != entry.owner_pid {
+            debug!(
+                "[window_cache] HWND 归属变化，pid={}（缓存 owner={}，当前={}）",
+                pid, entry.owner_pid, current_pid
+            );
+            return None;
+        }
+    }
+
+    debug!(
+        "[window_cache] 命中，pid={}，hwnd={}，缓存年龄={}ms",
+        pid,
+        entry.hwnd_raw,
+        entry.resolved_at.elapsed().as_millis()
+    );
+    Some(hwnd)
+}
+
+/// 删除指定 PID 的缓存条目（session 移除时调用）
+#[cfg(target_os = "windows")]
+pub fn invalidate_window_cache(pid: u32) {
+    if WINDOW_HWND_CACHE.lock().unwrap().remove(&pid).is_some() {
+        info!("[window_cache] 已清除 pid={} 的缓存条目", pid);
+    }
+}
+
+/// 清空整个缓存（应用重新初始化时调用）
+#[cfg(target_os = "windows")]
+pub fn clear_window_cache() {
+    let mut cache = WINDOW_HWND_CACHE.lock().unwrap();
+    let len = cache.len();
+    cache.clear();
+    info!("[window_cache] 已清空 {} 条缓存", len);
+}
+
+/// 执行完整的 PID 链查找并将结果写入缓存
+/// 线程安全，可从后台线程调用
+#[cfg(target_os = "windows")]
+pub fn resolve_and_cache_window(pid: u32) -> Option<HWND> {
+    let hwnd = find_window_by_pid_chain(pid)?;
+
+    let mut owner_pid: u32 = 0;
+    unsafe {
+        GetWindowThreadProcessId(hwnd, Some(&mut owner_pid));
+    }
+
+    WINDOW_HWND_CACHE.lock().unwrap().insert(
+        pid,
+        WindowCacheEntry {
+            hwnd_raw: hwnd.0 as isize,
+            owner_pid,
+            resolved_at: Instant::now(),
+        },
+    );
+    info!(
+        "[window_cache] 已缓存 hwnd={} owner_pid={} → session pid={}",
+        hwnd.0 as isize, owner_pid, pid
+    );
+    Some(hwnd)
+}
+
+/// 并行解析多个 PID 的窗口信息并写入缓存
+/// 为每个 PID 启动一个独立线程，立即返回（fire-and-forget）
+#[cfg(target_os = "windows")]
+pub fn populate_window_cache_parallel(pids: &[u32]) {
+    info!("[window_cache] 开始并行缓存 {} 个 PID 的窗口信息", pids.len());
+    for &pid in pids {
+        std::thread::spawn(move || {
+            let _ = resolve_and_cache_window(pid);
+        });
+    }
+}
+
+/// 从缓存的 HWND 快速读取窗口标题（单次 GetWindowTextW 调用）
+/// 缓存未命中时返回 None
+#[cfg(target_os = "windows")]
+pub fn get_cached_window_title(pid: u32) -> Option<String> {
+    let hwnd = get_cached_window(pid)?;
+
+    unsafe {
+        let mut buf: [u16; 256] = [0; 256];
+        let len = GetWindowTextW(hwnd, &mut buf);
+        if len > 0 {
+            let title = String::from_utf16_lossy(&buf[..len as usize]);
+            debug!("[window_cache] pid={} 的窗口标题: {}", pid, title);
+            return Some(title);
+        }
+    }
+    None
+}
 
 /// 终端配置结构
 pub struct TerminalConfig {
@@ -507,6 +634,15 @@ pub fn activate_window(window_id: u64) -> Result<(), String> {
     let _ = window_id;
     Err("仅支持 Windows 平台".to_string())
 }
+
+#[cfg(not(target_os = "windows"))]
+pub fn invalidate_window_cache(_pid: u32) {}
+
+#[cfg(not(target_os = "windows"))]
+pub fn clear_window_cache() {}
+
+#[cfg(not(target_os = "windows"))]
+pub fn populate_window_cache_parallel(_pids: &[u32]) {}
 
 /// 启动新终端窗口并恢复 session
 pub fn start_terminal_with_resume(working_directory: &str, session_id: &str, terminal_type: &str) -> Result<(), String> {
