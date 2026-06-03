@@ -139,6 +139,7 @@ export function NewSessionDialog({
                     onPinToggle={() => togglePinPath(fp.path)}
                     onDelete={() => removeFavoritePath(fp.path)}
                     onSelect={() => handleSelectFavoritePath(fp.path)}
+                    isSelected={workingDirectory.trim() !== "" && fp.path.toLowerCase() === workingDirectory.trim().toLowerCase()}
                   />
                 ))}
               </div>

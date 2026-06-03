@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react"
 import { createPortal } from "react-dom"
 import { cn } from "@/lib/utils"
-import { Bookmark } from "lucide-react"
+import { Bookmark, Check } from "lucide-react"
 import type { FavoritePath } from "@/types"
 
 interface PathCardProps {
@@ -9,9 +9,10 @@ interface PathCardProps {
   onPinToggle: () => void
   onDelete: () => void
   onSelect: () => void
+  isSelected?: boolean
 }
 
-export function PathCard({ path, onPinToggle, onDelete, onSelect }: PathCardProps) {
+export function PathCard({ path, onPinToggle, onDelete, onSelect, isSelected = false }: PathCardProps) {
   const [showMenu, setShowMenu] = useState(false)
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 })
   const cardRef = useRef<HTMLDivElement>(null)
@@ -73,10 +74,12 @@ export function PathCard({ path, onPinToggle, onDelete, onSelect }: PathCardProp
       <div
         ref={cardRef}
         className={cn(
-          "inline-flex items-center rounded overflow-hidden",
-          path.pinned
-            ? "border-2 border-violet-500 bg-violet-50"
-            : "border border-gray-200 bg-white hover:bg-gray-50"
+          "inline-flex items-center rounded",
+          isSelected
+            ? "ring-2 ring-violet-500 ring-offset-1 border border-violet-400 bg-violet-100"
+            : path.pinned
+              ? "border-2 border-violet-500 bg-violet-50"
+              : "border border-gray-200 bg-white hover:bg-gray-50"
         )}
         onContextMenu={handleContextMenu}
       >
@@ -88,7 +91,7 @@ export function PathCard({ path, onPinToggle, onDelete, onSelect }: PathCardProp
             onPinToggle()
           }}
           className={cn(
-            "p-1.5 border-r transition-colors",
+            "p-1.5 border-r rounded-l transition-colors",
             path.pinned
               ? "bg-violet-200 hover:bg-violet-300"
               : "bg-gray-50 hover:bg-violet-100"
@@ -112,10 +115,20 @@ export function PathCard({ path, onPinToggle, onDelete, onSelect }: PathCardProp
             setShowMenu(false)
             onSelect()
           }}
-          className="px-2 py-1 text-xs hover:underline cursor-pointer"
+          className={cn(
+            "px-2 py-1 text-xs hover:underline cursor-pointer",
+            isSelected && "font-medium text-violet-700"
+          )}
         >
           {path.path}
         </span>
+
+        {/* 选中指示器 */}
+        {isSelected && (
+          <span className="pr-1.5">
+            <Check className="w-3.5 h-3.5 text-violet-600" strokeWidth={3} />
+          </span>
+        )}
       </div>
 
       {/* 右键菜单 - Portal 到 body */}
