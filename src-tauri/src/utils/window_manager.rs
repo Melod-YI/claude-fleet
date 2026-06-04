@@ -141,6 +141,22 @@ pub struct TerminalConfig {
     pub args: Vec<&'static str>,
 }
 
+#[cfg(target_os = "windows")]
+pub fn terminal_uses_current_dir(terminal_type: &str) -> bool {
+    terminal_type != "wezterm"
+}
+
+#[cfg(target_os = "windows")]
+pub fn get_terminal_creation_flags(terminal_type: &str) -> u32 {
+    const DETACHED_PROCESS: u32 = 0x00000008;
+    const CREATE_NEW_CONSOLE: u32 = 0x00000010;
+
+    match terminal_type {
+        "cmd" | "powershell" => CREATE_NEW_CONSOLE,
+        _ => DETACHED_PROCESS,
+    }
+}
+
 /// 获取终端配置（恢复 session）
 fn get_terminal_config(terminal_type: &str) -> Option<TerminalConfig> {
     match terminal_type {
@@ -155,27 +171,15 @@ fn get_terminal_config(terminal_type: &str) -> Option<TerminalConfig> {
             ],
         }),
         "cmd" => Some(TerminalConfig {
-            // 使用 cmd /c start /d 指定目录启动独立的 cmd 窗口
             command: "cmd.exe",
             args: vec![
-                "/c",
-                "start",
-                "/d",
-                "{cwd}",
-                "cmd.exe",
                 "/K",
                 "claude --resume {session_id} --permission-mode bypassPermissions",
             ],
         }),
         "powershell" => Some(TerminalConfig {
-            // 使用 cmd /c start /d 指定目录启动独立的 powershell 窗口
-            command: "cmd.exe",
+            command: "powershell.exe",
             args: vec![
-                "/c",
-                "start",
-                "/d",
-                "{cwd}",
-                "powershell.exe",
                 "-NoExit",
                 "-Command",
                 "claude --resume {session_id} --permission-mode bypassPermissions",
@@ -198,33 +202,71 @@ pub fn get_terminal_config_for_new(terminal_type: &str) -> Option<TerminalConfig
             ],
         }),
         "cmd" => Some(TerminalConfig {
-            // 使用 cmd /c start /d 指定目录启动独立的 cmd 窗口
             command: "cmd.exe",
             args: vec![
-                "/c",
-                "start",
-                "/d",
-                "{cwd}",
-                "cmd.exe",
                 "/K",
                 "claude --permission-mode bypassPermissions",
             ],
         }),
         "powershell" => Some(TerminalConfig {
-            // 使用 cmd /c start /d 指定目录启动独立的 powershell 窗口
-            command: "cmd.exe",
+            command: "powershell.exe",
             args: vec![
-                "/c",
-                "start",
-                "/d",
-                "{cwd}",
-                "powershell.exe",
                 "-NoExit",
                 "-Command",
                 "claude --permission-mode bypassPermissions",
             ],
         }),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn powershell_resume_config_keeps_window_open_and_runs_command() {
+        let config = get_terminal_config("powershell").unwrap();
+
+        assert_eq!(config.command, "powershell.exe");
+        assert_eq!(
+            config.args,
+            vec![
+                "-NoExit",
+                "-Command",
+                "claude --resume {session_id} --permission-mode bypassPermissions",
+            ]
+        );
+    }
+
+    #[test]
+    fn powershell_new_config_keeps_window_open_and_runs_command() {
+        let config = get_terminal_config_for_new("powershell").unwrap();
+
+        assert_eq!(config.command, "powershell.exe");
+        assert_eq!(
+            config.args,
+            vec![
+                "-NoExit",
+                "-Command",
+                "claude --permission-mode bypassPermissions",
+            ]
+        );
+    }
+
+    #[test]
+    fn cmd_configs_do_not_treat_cwd_as_an_argument() {
+        let resume = get_terminal_config("cmd").unwrap();
+        let new = get_terminal_config_for_new("cmd").unwrap();
+
+        assert_eq!(
+            resume.args,
+            vec!["/K", "claude --resume {session_id} --permission-mode bypassPermissions"]
+        );
+        assert_eq!(
+            new.args,
+            vec!["/K", "claude --permission-mode bypassPermissions"]
+        );
     }
 }
 
@@ -652,7 +694,6 @@ pub fn start_terminal_with_resume(working_directory: &str, session_id: &str, ter
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
-        const DETACHED_PROCESS: u32 = 0x00000008;
 
         // 获取终端配置
         let config = match get_terminal_config(terminal_type) {
@@ -673,12 +714,11 @@ pub fn start_terminal_with_resume(working_directory: &str, session_id: &str, ter
 
         let mut cmd = Command::new(config.command);
         cmd.args(&args);
-
-        // wezterm 是 GUI 程序需要 DETACHED_PROCESS
-        // cmd/powershell 通过 start 命令启动独立进程，父 cmd.exe 立即退出
-        if terminal_type == "wezterm" {
-            cmd.creation_flags(DETACHED_PROCESS);
+        if terminal_uses_current_dir(terminal_type) {
+            cmd.current_dir(working_directory);
         }
+
+        cmd.creation_flags(get_terminal_creation_flags(terminal_type));
 
         cmd.spawn()
             .map_err(|e| {

@@ -145,8 +145,8 @@ pub async fn start_new_session(
 
     #[cfg(target_os = "windows")]
     {
+        use crate::utils::window_manager::{get_terminal_creation_flags, terminal_uses_current_dir};
         use std::os::windows::process::CommandExt;
-        const DETACHED_PROCESS: u32 = 0x00000008;
 
         // 获取终端配置（新建 session）
         let config = match get_terminal_config_for_new(&terminal_type) {
@@ -175,12 +175,11 @@ pub async fn start_new_session(
 
         let mut cmd = Command::new(config.command);
         cmd.args(&args);
-
-        // wezterm 是 GUI 程序需要 DETACHED_PROCESS
-        // cmd/powershell 通过 start 命令启动独立进程，父 cmd.exe 立即退出
-        if terminal_type == "wezterm" {
-            cmd.creation_flags(DETACHED_PROCESS);
+        if terminal_uses_current_dir(&terminal_type) {
+            cmd.current_dir(&working_directory);
         }
+
+        cmd.creation_flags(get_terminal_creation_flags(&terminal_type));
 
         cmd.spawn()
             .map_err(|e| {

@@ -25,7 +25,10 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 
 [profile.release]
 strip = true
-lto = true
+lto = "thin"
+opt-level = 2
+codegen-units = 32
+panic = "abort"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
