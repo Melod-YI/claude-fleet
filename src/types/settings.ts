@@ -1,4 +1,17 @@
-export type TerminalType = 'wezterm' | 'cmd' | 'powershell'
+export type TerminalType = 'wezterm' | 'cmd' | 'powershell' | 'powershell7'
+
+export interface CommandWrapperSettings {
+  enabled: boolean
+  executable: string
+  argsBeforeAgent: string[]
+}
+
+export interface LaunchSettings {
+  terminalId: string
+  claudeExecutable: string
+  claudeArgs: string[]
+  wrapper?: CommandWrapperSettings
+}
 
 // 音频文件信息
 export interface SoundInfo {
@@ -27,6 +40,58 @@ export interface AppSettings {
   notificationSoundFile: string  // 选中的音频文件名（空表示使用默认）
   theme: 'light' | 'dark' | 'system'
   terminalType: TerminalType
+  launchSettings: LaunchSettings
+}
+
+export function createDefaultLaunchSettings(terminalId: string = 'wezterm'): LaunchSettings {
+  return {
+    terminalId,
+    claudeExecutable: 'claude',
+    claudeArgs: ['--permission-mode', 'bypassPermissions'],
+    wrapper: {
+      enabled: false,
+      executable: 'ccglass',
+      argsBeforeAgent: [],
+    },
+  }
+}
+
+export function parseLaunchSettings(value: string | undefined, fallbackTerminalId: string): LaunchSettings {
+  if (!value) {
+    return createDefaultLaunchSettings(fallbackTerminalId)
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Partial<LaunchSettings>
+    return {
+      terminalId: typeof parsed.terminalId === 'string' && parsed.terminalId.trim()
+        ? parsed.terminalId
+        : fallbackTerminalId,
+      claudeExecutable: typeof parsed.claudeExecutable === 'string' && parsed.claudeExecutable.trim()
+        ? parsed.claudeExecutable
+        : 'claude',
+      claudeArgs: Array.isArray(parsed.claudeArgs)
+        ? parsed.claudeArgs.filter((arg): arg is string => typeof arg === 'string')
+        : ['--permission-mode', 'bypassPermissions'],
+      wrapper: parsed.wrapper && typeof parsed.wrapper === 'object'
+        ? {
+            enabled: parsed.wrapper.enabled === true,
+            executable: typeof parsed.wrapper.executable === 'string' && parsed.wrapper.executable.trim()
+              ? parsed.wrapper.executable
+              : 'ccglass',
+            argsBeforeAgent: Array.isArray(parsed.wrapper.argsBeforeAgent)
+              ? parsed.wrapper.argsBeforeAgent.filter((arg): arg is string => typeof arg === 'string')
+              : [],
+          }
+        : {
+            enabled: false,
+            executable: 'ccglass',
+            argsBeforeAgent: [],
+          },
+    }
+  } catch {
+    return createDefaultLaunchSettings(fallbackTerminalId)
+  }
 }
 
 // 常用路径排序权重配置

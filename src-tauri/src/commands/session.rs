@@ -138,59 +138,30 @@ pub async fn start_new_session(
     name: Option<String>,
     terminal_type: String,
 ) -> Result<String, String> {
-    use std::process::Command;
-    use crate::utils::window_manager::get_terminal_config_for_new;
     info!("[start_new_session] 开始启动新 session，工作目录: {}, 名称: {:?}, 终端: {}",
           working_directory, name, terminal_type);
 
     #[cfg(target_os = "windows")]
     {
-        use crate::utils::window_manager::{get_terminal_creation_flags, terminal_uses_current_dir};
-        use std::os::windows::process::CommandExt;
+        use crate::utils::launch::{launch_session, LaunchMode, LaunchRequest, LaunchSettings};
 
-        // 获取终端配置（新建 session）
-        let config = match get_terminal_config_for_new(&terminal_type) {
-            Some(c) => c,
-            None => {
-                error!("[start_new_session] 不支持的终端类型: {}", terminal_type);
-                return Err(format!("不支持的终端类型: {}", terminal_type));
-            }
+        let request = LaunchRequest {
+            working_directory: working_directory.clone(),
+            mode: LaunchMode::New { name: name.clone() },
+            settings: LaunchSettings::legacy_default(&terminal_type),
         };
 
-        info!("[start_new_session] 终端配置: {} {}", config.command, config.args.join(" "));
-
-        // 替换参数中的变量
-        let mut args: Vec<String> = config.args.iter().map(|arg| {
-            arg.replace("{cwd}", &working_directory)
-        }).collect();
-
-        // 如果有名称，添加 --name 参数到末尾
-        if let Some(ref session_name) = name {
-            let trimmed_name = session_name.trim();
-            if !trimmed_name.is_empty() {
-                args.push("--name".to_string());
-                args.push(trimmed_name.to_string());
-            }
-        }
-
-        let mut cmd = Command::new(config.command);
-        cmd.args(&args);
-        if terminal_uses_current_dir(&terminal_type) {
-            cmd.current_dir(&working_directory);
-        }
-
-        cmd.creation_flags(get_terminal_creation_flags(&terminal_type));
-
-        cmd.spawn()
+        launch_session(&request)
             .map_err(|e| {
                 error!("[start_new_session] 启动失败: {}", e);
-                format!("启动终端失败: {}", e)
+                e
             })?;
         info!("[start_new_session] 终端启动成功（独立进程）");
     }
 
     #[cfg(target_os = "macos")]
     {
+        use std::process::Command;
         debug!("[start_new_session] macOS 平台，使用 open");
         Command::new("open")
             .args(["-a", "Terminal", &working_directory])
@@ -204,6 +175,7 @@ pub async fn start_new_session(
 
     #[cfg(target_os = "linux")]
     {
+        use std::process::Command;
         debug!("[start_new_session] Linux 平台，使用 gnome-terminal");
         Command::new("gnome-terminal")
             .args(["--working-directory", &working_directory, "-e", "claude --permission-mode bypassPermissions"])

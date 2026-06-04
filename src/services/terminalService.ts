@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import type { ClaudeSession } from '@/types'
-import { useSettingsStore } from '@/stores/settingsStore'
+import { resumeSessionInTerminal } from '@/services/sessionLaunchService'
 
 /**
  * 智能跳转到终端窗口
@@ -37,20 +37,7 @@ export async function jumpToTerminalByPid(processId: number): Promise<void> {
  * 启动新的终端窗口并执行 claude --resume 命令
  */
 export async function resumeInTerminal(session: ClaudeSession): Promise<void> {
-  const terminalType = useSettingsStore.getState().terminalType
-
-  try {
-    await invoke('resume_in_terminal', {
-      workingDirectory: session.workingDirectory,
-      sessionId: session.id,
-      terminalType,
-    })
-  } catch (error) {
-    // 失败时，复制恢复命令作为备用方案
-    const command = `claude --resume ${session.id} --permission-mode bypassPermissions`
-    await navigator.clipboard.writeText(command)
-    throw new Error(`恢复失败，命令已复制到剪贴板: ${error}`)
-  }
+  await resumeSessionInTerminal(session)
 }
 
 /**

@@ -6,3 +6,4 @@ pub mod sessions_watcher;
 pub mod logger;
 pub mod running_sessions;
 pub mod window_manager;
+pub mod launch;

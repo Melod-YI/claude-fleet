@@ -9,6 +9,8 @@ import {
   FavoritePath,
 } from '@/services/dbService'
 import type { AppSettings, TerminalType } from '@/types'
+import { createDefaultLaunchSettings, parseLaunchSettings } from '@/types'
+import type { LaunchSettings } from '@/types'
 
 interface SettingsState extends AppSettings {
   initialized: boolean
@@ -24,6 +26,7 @@ interface SettingsState extends AppSettings {
   setNotificationSoundFile: (filename: string) => Promise<void>
   setTheme: (theme: 'light' | 'dark' | 'system') => Promise<void>
   setTerminalType: (type: TerminalType) => Promise<void>
+  setLaunchSettings: (settings: LaunchSettings) => Promise<void>
   getSortedFavoritePaths: () => FavoritePath[]
 }
 
@@ -35,6 +38,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   notificationSoundFile: '',
   theme: 'system',
   terminalType: 'wezterm',
+  launchSettings: createDefaultLaunchSettings('wezterm'),
 }
 
 export const useSettingsStore = create<SettingsState>()((set, get) => ({
@@ -65,6 +69,9 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
       if (settings['terminalType']) {
         parsed.terminalType = settings['terminalType'] as TerminalType
       }
+
+      const terminalId = parsed.terminalType ?? DEFAULT_SETTINGS.terminalType
+      parsed.launchSettings = parseLaunchSettings(settings['launchSettings'], terminalId)
 
       const paths = await getSortedFavoritePaths()
       parsed.favoritePaths = { paths }
@@ -123,14 +130,34 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   },
 
   setTerminalType: async (type) => {
+    const launchSettings = {
+      ...get().launchSettings,
+      terminalId: type,
+    }
     await setSetting('terminalType', type)
-    set({ terminalType: type })
+    await setSetting('launchSettings', JSON.stringify(launchSettings))
+    set({ terminalType: type, launchSettings })
+  },
+
+  setLaunchSettings: async (settings) => {
+    await setSetting('launchSettings', JSON.stringify(settings))
+    const terminalType = isTerminalType(settings.terminalId)
+      ? settings.terminalId
+      : get().terminalType
+    if (terminalType !== get().terminalType) {
+      await setSetting('terminalType', terminalType)
+    }
+    set({ launchSettings: settings, terminalType })
   },
 
   getSortedFavoritePaths: () => {
     return get().favoritePaths.paths
   },
 }))
+
+function isTerminalType(value: string): value is TerminalType {
+  return value === 'wezterm' || value === 'cmd' || value === 'powershell' || value === 'powershell7'
+}
 
 /**
  * 标准化路径（去除末尾斜杠、统一大小写等）

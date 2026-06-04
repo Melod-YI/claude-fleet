@@ -21,7 +21,7 @@ use commands::session_commands::{
     get_session_messages_optimized,
     delete_session_optimized,
 };
-use commands::terminal::{jump_to_terminal, jump_to_terminal_by_pid, smart_jump_to_terminal, resume_in_terminal, open_directory, open_in_vscode};
+use commands::terminal::{jump_to_terminal, jump_to_terminal_by_pid, smart_jump_to_terminal, resume_in_terminal, launch_session, open_directory, open_in_vscode};
 use commands::sound::{get_available_sounds, get_sound_data};
 // 数据库命令
 use db::sessions_meta::{set_session_name_cmd, get_session_name_cmd, delete_session_name_cmd};
@@ -124,6 +124,7 @@ pub fn run() {
             jump_to_terminal_by_pid,
             smart_jump_to_terminal,
             resume_in_terminal,
+            launch_session,
             open_directory,
             open_in_vscode,
             // Sound commands

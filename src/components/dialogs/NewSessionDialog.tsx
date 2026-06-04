@@ -10,9 +10,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { FolderOpen, Loader2 } from "lucide-react"
 import { open as openDialog } from "@tauri-apps/plugin-dialog"
-import { invoke } from "@tauri-apps/api/core"
 import type { FavoritePath } from "@/types"
 import { useSettingsStore } from "@/stores/settingsStore"
+import { startNewSession } from "@/services/sessionLaunchService"
 import { PathCard } from "./PathCard"
 
 interface NewSessionDialogProps {
@@ -32,7 +32,6 @@ export function NewSessionDialog({
   const [sessionName, setSessionName] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const terminalType = useSettingsStore((state) => state.terminalType)
   const togglePinPath = useSettingsStore((state) => state.togglePinPath)
   const removeFavoritePath = useSettingsStore((state) => state.removeFavoritePath)
 
@@ -66,11 +65,9 @@ export function NewSessionDialog({
     setError(null)
 
     try {
-      // 调用 Tauri 命令启动 Claude Code
-      await invoke('start_new_session', {
+      await startNewSession({
         workingDirectory,
         name: sessionName.trim() || undefined,
-        terminalType,
       })
 
       // 记录路径使用（用于排序）

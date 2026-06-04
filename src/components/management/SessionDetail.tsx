@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { ConversationView } from "./ConversationView"
 import { useFavoriteStore } from "@/stores"
 import { resumeInTerminal } from "@/services"
-import { ConfirmDialog } from "@/components/dialogs"
+import { ConfirmDialog, ErrorDialog } from "@/components/dialogs"
 import { Star, Trash2, Copy, Check, RefreshCw, Play, Clock } from "lucide-react"
 import { formatRelativeTime, getDisplayName } from "@/utils"
 import { PathHoverDisplay } from "@/components/common/PathHoverDisplay"
@@ -30,6 +30,7 @@ export function SessionDetail({
   const displayName = getDisplayName(session)
   const [copied, setCopied] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [resumeError, setResumeError] = useState<string | null>(null)
   const { toggleFavorite } = useFavoriteStore()
 
   const handleCopyCommand = async () => {
@@ -53,7 +54,7 @@ export function SessionDetail({
       }
       await resumeInTerminal(legacySession)
     } catch (e) {
-      alert(String(e))
+      setResumeError(String(e))
     }
   }
 
@@ -188,6 +189,12 @@ export function SessionDetail({
         description={`确定要删除 "${displayName}" 吗？此操作不可撤销。`}
         confirmText="删除"
         variant="destructive"
+      />
+      <ErrorDialog
+        open={resumeError !== null}
+        onClose={() => setResumeError(null)}
+        title="恢复 Session 失败"
+        message={resumeError ?? ""}
       />
     </div>
   )

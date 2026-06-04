@@ -3,7 +3,12 @@ use crate::utils::window_manager::{
     find_terminal_window,
     find_window_by_pid_chain,
     activate_window,
-    start_terminal_with_resume,
+};
+use crate::utils::launch::{
+    launch_session as run_launch_session,
+    LaunchMode,
+    LaunchRequest,
+    LaunchSettings,
 };
 use tracing::{info, debug, warn, error};
 
@@ -130,7 +135,13 @@ pub fn resume_in_terminal(working_directory: String, session_id: String, termina
     info!("[resume_in_terminal] 开始，工作目录: {}, session_id: {}, 终端: {}",
           working_directory, session_id, terminal_type);
 
-    let result = start_terminal_with_resume(&working_directory, &session_id, &terminal_type);
+    let request = LaunchRequest {
+        working_directory,
+        mode: LaunchMode::Resume { session_id },
+        settings: LaunchSettings::legacy_default(&terminal_type),
+    };
+
+    let result = run_launch_session(&request);
 
     match result {
         Ok(_) => {
@@ -139,6 +150,22 @@ pub fn resume_in_terminal(working_directory: String, session_id: String, termina
         }
         Err(e) => {
             error!("[resume_in_terminal] 失败: {}", e);
+            Err(e)
+        }
+    }
+}
+
+#[tauri::command]
+pub fn launch_session(request: LaunchRequest) -> Result<(), String> {
+    info!("[launch_session] 开始，工作目录: {}", request.working_directory);
+
+    match run_launch_session(&request) {
+        Ok(_) => {
+            info!("[launch_session] 完成");
+            Ok(())
+        }
+        Err(e) => {
+            error!("[launch_session] 失败: {}", e);
             Err(e)
         }
     }
