@@ -87,6 +87,18 @@ pub fn build_agent_argv(request: &LaunchRequest) -> Vec<String> {
 pub fn build_process_argv(request: &LaunchRequest) -> Vec<String> {
     let agent_argv = build_agent_argv(request);
 
+    // ccglass 在 wezterm 下存在兼容性问题，强制跳过
+    if request.settings.terminal_id == "wezterm" {
+        if let Some(wrapper) = &request.settings.wrapper {
+            if wrapper.enabled {
+                tracing::warn!(
+                    "[build_process_argv] wezterm 不支持 ccglass wrapper，已忽略"
+                );
+            }
+        }
+        return agent_argv;
+    }
+
     if let Some(wrapper) = &request.settings.wrapper {
         if wrapper.enabled && !wrapper.executable.trim().is_empty() {
             let mut argv = vec![wrapper.executable.clone()];
@@ -281,6 +293,37 @@ mod tests {
                 "session-123",
                 "--permission-mode",
                 "bypassPermissions",
+            ]
+        );
+    }
+
+    #[test]
+    fn wezterm_skips_wrapper_even_when_enabled() {
+        let mut settings = default_settings("wezterm");
+        settings.wrapper = Some(CommandWrapper {
+            enabled: true,
+            executable: "ccglass".to_string(),
+            args_before_agent: vec!["--some-flag".to_string()],
+        });
+        let request = LaunchRequest {
+            working_directory: "C:\\workspace\\project".to_string(),
+            mode: LaunchMode::New {
+                name: Some("demo".to_string()),
+            },
+            settings,
+        };
+
+        let argv = build_process_argv(&request);
+
+        // wrapper 被跳过，直接返回 agent argv
+        assert_eq!(
+            argv,
+            vec![
+                "claude",
+                "--permission-mode",
+                "bypassPermissions",
+                "--name",
+                "demo",
             ]
         );
     }

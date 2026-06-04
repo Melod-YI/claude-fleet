@@ -196,21 +196,27 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 </p>
               </div>
 
-              <div className="flex items-center justify-between rounded-md border p-3">
+              <div className={`flex items-center justify-between rounded-md border p-3 ${terminalType === 'wezterm' ? 'opacity-60' : ''}`}>
                 <div className="space-y-0.5">
                   <Label htmlFor="ccglass-enabled">启用 ccglass</Label>
                   <p className="text-xs text-muted-foreground">
                     启用后使用 ccglass 作为主入口
                   </p>
+                  {terminalType === 'wezterm' && (
+                    <p className="text-xs text-amber-600">
+                      WezTerm 暂不支持 ccglass，已自动禁用
+                    </p>
+                  )}
                 </div>
                 <Switch
                   id="ccglass-enabled"
-                  checked={wrapper.enabled}
+                  checked={terminalType === 'wezterm' ? false : wrapper.enabled}
+                  disabled={terminalType === 'wezterm'}
                   onCheckedChange={(enabled) => updateWrapper({ enabled })}
                 />
               </div>
 
-              {wrapper.enabled && (
+              {wrapper.enabled && terminalType !== 'wezterm' && (
                 <div className="space-y-3 rounded-md border bg-muted/20 p-3">
                   <div className="space-y-2">
                     <Label htmlFor="ccglass-executable">ccglass 可执行文件</Label>
