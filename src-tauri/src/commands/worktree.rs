@@ -20,7 +20,7 @@ use crate::utils::git::worktree::{
 
 /// Worktree 状态标记
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "lowercase")]
 pub enum WorktreeStatus {
     Active,
     Missing,
@@ -232,4 +232,80 @@ fn extract_name_from_path(path: &str) -> String {
         .and_then(|n| n.to_str())
         .map(|s| s.to_string())
         .unwrap_or_else(|| "unknown".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn worktree_status_serializes_to_lowercase() {
+        let active = serde_json::to_string(&WorktreeStatus::Active).unwrap();
+        assert_eq!(active, "\"active\"");
+
+        let missing = serde_json::to_string(&WorktreeStatus::Missing).unwrap();
+        assert_eq!(missing, "\"missing\"");
+
+        let unmanaged = serde_json::to_string(&WorktreeStatus::Unmanaged).unwrap();
+        assert_eq!(unmanaged, "\"unmanaged\"");
+    }
+
+    #[test]
+    fn worktree_status_deserializes_from_lowercase() {
+        let active: WorktreeStatus = serde_json::from_str("\"active\"").unwrap();
+        assert!(matches!(active, WorktreeStatus::Active));
+
+        let missing: WorktreeStatus = serde_json::from_str("\"missing\"").unwrap();
+        assert!(matches!(missing, WorktreeStatus::Missing));
+
+        let unmanaged: WorktreeStatus = serde_json::from_str("\"unmanaged\"").unwrap();
+        assert!(matches!(unmanaged, WorktreeStatus::Unmanaged));
+    }
+
+    #[test]
+    fn worktree_list_item_camel_case_roundtrip() {
+        let item = WorktreeListItem {
+            id: Some(1),
+            name: "test".to_string(),
+            repo_name: "myrepo".to_string(),
+            base_ref: Some("origin/main".to_string()),
+            created_at: Some(1718668800),
+            path: "/path/to/wt".to_string(),
+            head: "abc123".to_string(),
+            branch: Some("feature".to_string()),
+            is_main: false,
+            status: WorktreeStatus::Active,
+        };
+        let json = serde_json::to_string(&item).unwrap();
+        assert!(json.contains("repoName"));
+        assert!(json.contains("baseRef"));
+        assert!(json.contains("createdAt"));
+        assert!(json.contains("isMain"));
+        assert!(!json.contains("repo_name"));
+
+        let parsed: WorktreeListItem = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.name, "test");
+        assert_eq!(parsed.repo_name, "myrepo");
+        assert!(matches!(parsed.status, WorktreeStatus::Active));
+    }
+
+    #[test]
+    fn repo_info_camel_case_roundtrip() {
+        let info = RepoInfo {
+            name: "myrepo".to_string(),
+            remotes: vec![RemoteInfo { name: "origin".to_string(), url: "https://github.com/user/repo.git".to_string() }],
+            local_branches: vec!["main".to_string()],
+            remote_branches: vec!["origin/main".to_string()],
+            default_branch: "main".to_string(),
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("localBranches"));
+        assert!(json.contains("remoteBranches"));
+        assert!(json.contains("defaultBranch"));
+        assert!(!json.contains("local_branches"));
+
+        let parsed: RepoInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.name, "myrepo");
+        assert_eq!(parsed.remotes.len(), 1);
+    }
 }
