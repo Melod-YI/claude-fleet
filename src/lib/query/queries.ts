@@ -6,7 +6,9 @@ export const useSessionsQuery = () => {
   return useQuery<SessionMeta[]>({
     queryKey: ["sessions"],
     queryFn: async () => sessionsApi.list(),
-    staleTime: 30 * 1000, // 30 seconds cache
+    staleTime: Infinity, // 不自动刷新，仅手动刷新
+    gcTime: Infinity,    // 不自动回收缓存
+    refetchOnWindowFocus: false, // 切换窗口时不自动刷新
   });
 };
 

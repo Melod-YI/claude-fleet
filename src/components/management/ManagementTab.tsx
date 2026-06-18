@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
+import { cn } from "@/lib/utils"
 import { SessionList } from "./SessionList"
 import { SessionDetail } from "./SessionDetail"
 import { GroupedSessionList } from "./GroupedSessionList"
@@ -19,9 +20,18 @@ export function ManagementTab() {
   const [searchQuery, setSearchQuery] = useState("")
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(true)
   const [timeRange, setTimeRange] = useState<'3d' | '7d' | '30d' | 'all'>('30d')
-  const [viewMode, setViewMode] = useState<'list' | 'grouped'>('list')
+  const [viewMode, setViewMode] = useState<'list' | 'grouped'>('grouped')
+  const [lastScanTime, setLastScanTime] = useState<Date | null>(null)
 
-  const { data: sessionsData, isLoading: sessionsLoading, refetch: refetchSessions } = useSessionsQuery()
+  const { data: sessionsData, isLoading: sessionsLoading, refetch: refetchSessions, dataUpdatedAt } = useSessionsQuery()
+
+  // 记录扫描时间
+  useEffect(() => {
+    if (dataUpdatedAt > 0) {
+      setLastScanTime(new Date(dataUpdatedAt))
+    }
+  }, [dataUpdatedAt])
+
   const { data: messages, isLoading: messagesLoading, refetch: refetchMessages } =
     useSessionMessagesQuery(selectedSession?.sessionId)
   const deleteMutation = useDeleteSessionMutation()
@@ -118,39 +128,45 @@ export function ManagementTab() {
           />
         )}
 
-        {/* 视图切换按钮（仅收藏模式） */}
-        {showFavoritesOnly && (
-          <div className="flex items-center gap-1">
-            <Button
-              variant={viewMode === 'list' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => setViewMode('list')}
-              className="h-9"
-              title="列表视图"
-            >
-              <List className="w-4 h-4" />
-            </Button>
-            <Button
-              variant={viewMode === 'grouped' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => setViewMode('grouped')}
-              className="h-9"
-              title="分组视图"
-            >
-              <FolderTree className="w-4 h-4" />
-            </Button>
-          </div>
-        )}
+        {/* 视图切换按钮 */}
+        <div className="flex items-center gap-1">
+          <Button
+            variant={viewMode === 'list' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setViewMode('list')}
+            className="h-9"
+            title="列表视图"
+          >
+            <List className="w-4 h-4" />
+          </Button>
+          <Button
+            variant={viewMode === 'grouped' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setViewMode('grouped')}
+            className="h-9"
+            title="分组视图"
+          >
+            <FolderTree className="w-4 h-4" />
+          </Button>
+        </div>
 
-        {/* 操作按钮 */}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refetchSessions()}
-          className="h-9"
-        >
-          <RefreshCw className="w-4 h-4" />
-        </Button>
+        {/* 扫描时间和刷新按钮 */}
+        <div className="flex items-center gap-2">
+          {lastScanTime && (
+            <span className="text-xs text-gray-400">
+              扫描于 {lastScanTime.toLocaleString('zh-CN', { hour12: false })}
+            </span>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetchSessions()}
+            className="h-9"
+            title="刷新扫描"
+          >
+            <RefreshCw className={cn("w-4 h-4", sessionsLoading && "animate-spin")} />
+          </Button>
+        </div>
 
         <Button
           variant="default"
@@ -167,7 +183,7 @@ export function ManagementTab() {
       <div className="flex-1 flex min-h-0 overflow-hidden">
         {/* 左侧列表 */}
         <div className="w-[320px] min-w-[320px] border-r border-gray-200 flex flex-col bg-gray-50 shadow-sm overflow-hidden">
-          {viewMode === 'list' || !showFavoritesOnly ? (
+          {viewMode === 'list' ? (
             <SessionList
               sessions={filteredSessions}
               selectedSessionId={selectedSession?.sessionId || null}
