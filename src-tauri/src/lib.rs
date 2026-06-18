@@ -23,6 +23,7 @@ use commands::session_commands::{
 };
 use commands::terminal::{jump_to_terminal, jump_to_terminal_by_pid, smart_jump_to_terminal, resume_in_terminal, launch_session, open_directory, open_in_vscode};
 use commands::sound::{get_available_sounds, get_sound_data};
+use commands::worktree::{create_worktree_cmd, list_worktrees_cmd, get_repo_info_cmd};
 // 数据库命令
 use db::sessions_meta::{set_session_name_cmd, get_session_name_cmd, delete_session_name_cmd};
 use db::favorites::{add_favorite_cmd, remove_favorite_cmd, is_favorite_cmd, get_all_favorites_cmd};
@@ -145,7 +146,11 @@ pub fn run() {
             get_setting_cmd,
             set_setting_cmd,
             get_all_settings_cmd,
-            needs_migration_cmd
+            needs_migration_cmd,
+            // Worktree commands
+            create_worktree_cmd,
+            list_worktrees_cmd,
+            get_repo_info_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
