@@ -6,3 +6,4 @@ pub mod favorites;
 pub mod favorite_paths;
 pub mod settings;
 pub mod migration;
+pub mod worktrees;
