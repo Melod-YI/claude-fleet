@@ -54,6 +54,16 @@ pub fn init_tables() -> Result<()> {
             path TEXT PRIMARY KEY,
             use_count INTEGER,
             last_used_at INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS worktrees (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            branch TEXT NOT NULL,
+            path TEXT NOT NULL UNIQUE,
+            repo_name TEXT NOT NULL,
+            repo_path TEXT NOT NULL,
+            base_ref TEXT NOT NULL,
+            created_at INTEGER NOT NULL
         );"
     )?;
 
