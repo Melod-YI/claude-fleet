@@ -65,6 +65,16 @@ pub fn create_worktree_cmd(
     info!("[create_worktree_cmd] 开始: repo={}, name={}, branch={}, base_ref={}",
           repo_path, name, branch, base_ref);
 
+    if name.trim().is_empty() {
+        return Err("worktree 名称不能为空".to_string());
+    }
+    if branch.trim().is_empty() {
+        return Err("分支名不能为空".to_string());
+    }
+    if base_ref.trim().is_empty() {
+        return Err("基点引用不能为空".to_string());
+    }
+
     let opts = CreateWorktreeOptions {
         repo_path: Path::new(&repo_path).to_path_buf(),
         name: name.clone(),

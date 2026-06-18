@@ -173,7 +173,7 @@ pub fn get_repo_parent(repo_path: &Path) -> Result<PathBuf, String> {
     let repo_root: PathBuf = if common_dir != git_dir {
         // 在 worktree 中：common_dir 指向主仓库的 .git
         let common_path = PathBuf::from(&common_dir);
-        if common_path.file_name().map_or(false, |n| n == ".git") {
+        if common_path.file_name().is_some_and(|n| n == ".git") {
             common_path
                 .parent()
                 .ok_or_else(|| "无法获取主仓库目录".to_string())?

@@ -32,9 +32,7 @@ pub struct GitWorktreeEntry {
 /// 清理名称用于目录名：替换 Windows 非法字符为 `-`，去除首尾空格和点。
 pub fn sanitize_name(name: &str) -> String {
     let mut result = name.trim().to_string();
-    for ch in ['<', '>', ':', '"', '|', '?', '*', '/', '\\'] {
-        result = result.replace(ch, "-");
-    }
+    result = result.replace(['<', '>', ':', '"', '|', '?', '*', '/', '\\'], "-");
     result.trim_matches('.').to_string()
 }
 
@@ -163,7 +161,7 @@ pub fn create_worktree(opts: &CreateWorktreeOptions) -> Result<WorktreeInfo, Str
     // 2. 获取 repo_name
     let repo_name = get_repo_name(&opts.repo_path)?;
 
-    // 3. 计算目标目录
+    // 3. 计算目标目录（绝对路径）
     let parent = get_repo_parent(&opts.repo_path)?;
     let sanitized_name = sanitize_name(&opts.name);
     let worktree_base = parent.join(format!("{}.worktrees", repo_name));
@@ -197,9 +195,8 @@ pub fn create_worktree(opts: &CreateWorktreeOptions) -> Result<WorktreeInfo, Str
     fs::create_dir_all(&worktree_base)
         .map_err(|e| format!("创建 worktree 根目录失败: {}", e))?;
 
-    // 8. 创建 worktree（使用相对路径）
-    let relative_path = format!("../{}.worktrees/{}", repo_name, sanitized_name);
-    execute_git(&opts.repo_path, &["worktree", "add", &relative_path, &opts.branch])
+    // 8. 创建 worktree
+    execute_git(&opts.repo_path, &["worktree", "add", &worktree_dir.to_string_lossy(), &opts.branch])
         .map_err(|e| format!("创建 worktree 失败: {}", e))?;
 
     info!("[create_worktree] worktree 创建成功: {}", worktree_dir.display());
