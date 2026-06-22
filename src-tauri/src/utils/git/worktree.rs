@@ -9,6 +9,21 @@ use tracing::{info, warn};
 use super::{branch_exists, execute_git, get_repo_name, get_repo_parent};
 use crate::db::worktrees::WorktreeInfo;
 
+/// 归一化路径分隔符。
+/// Git porcelain 在 Windows 上输出正斜杠（C:/path），
+/// 而 Rust PathBuf 使用反斜杠（C:\path）。
+/// 统一转为平台原生格式，避免路径匹配失败。
+fn normalize_path(path: &str) -> String {
+    #[cfg(target_os = "windows")]
+    {
+        path.replace('/', "\\")
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        path.to_string()
+    }
+}
+
 /// 创建 worktree 的参数
 #[derive(Debug, Clone)]
 pub struct CreateWorktreeOptions {
@@ -79,7 +94,7 @@ pub fn parse_worktree_porcelain(output: &str) -> Result<Vec<GitWorktreeEntry>, S
         }
 
         if let Some(path) = line.strip_prefix("worktree ") {
-            current_path = path.to_string();
+            current_path = normalize_path(path);
         } else if let Some(head) = line.strip_prefix("HEAD ") {
             current_head = head.to_string();
         } else if let Some(branch_ref) = line.strip_prefix("branch ") {
@@ -258,7 +273,7 @@ branch refs/heads/main
 ";
         let entries = parse_worktree_porcelain(output).unwrap();
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].path, "C:/workspace/myproject");
+        assert_eq!(entries[0].path, normalize_path("C:/workspace/myproject"));
         assert_eq!(entries[0].head, "abc123def456789");
         assert_eq!(entries[0].branch, Some("main".to_string()));
         assert!(entries[0].is_main);
@@ -301,7 +316,7 @@ HEAD abc123
 branch refs/heads/main";
         let entries = parse_worktree_porcelain(output).unwrap();
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].path, "/path/to/repo");
+        assert_eq!(entries[0].path, normalize_path("/path/to/repo"));
     }
 
     #[test]
