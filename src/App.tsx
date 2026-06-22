@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { AppLayout } from "@/components/layout"
 import { RunningTab } from "@/components/running"
 import { ManagementTab } from "@/components/management"
+import { WorktreeTab } from "@/components/worktree"
 import { useNotification } from "@/hooks"
 import { ErrorBoundary } from "@/components/common"
 import { useFavoriteStore, useSettingsStore } from '@/stores'
@@ -126,6 +127,7 @@ function App() {
     <ErrorBoundary>
       <AppLayout activeTab={activeTab} onTabChange={setActiveTab}>
         {activeTab === "running" && <RunningTab />}
+        {activeTab === "worktree" && <WorktreeTab />}
         {activeTab === "management" && <ManagementTab />}
       </AppLayout>
     </ErrorBoundary>

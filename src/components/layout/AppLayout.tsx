@@ -12,6 +12,7 @@ interface AppLayoutProps {
 
 const TABS = [
   { id: "running", label: "运行中" },
+  { id: "worktree", label: "Worktree" },
   { id: "management", label: "Session 管理" },
 ]
 
