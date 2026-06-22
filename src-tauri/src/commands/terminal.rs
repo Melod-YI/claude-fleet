@@ -201,16 +201,10 @@ pub fn open_in_vscode(path: String) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
-
-        // CREATE_NO_WINDOW = 0x08000000，完全隐藏进程窗口
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-
         // 使用 cmd.exe 执行 code 命令，确保能找到 PATH 中的 code
         // code 命令会启动 VSCode 后自动退出
-        Command::new("cmd.exe")
+        crate::utils::process::command("cmd.exe")
             .args(["/C", "code", &path])
-            .creation_flags(CREATE_NO_WINDOW)
             .spawn()
             .map_err(|e| format!("打开 VSCode 失败: {}。请确保 VSCode 已安装且 'code' 命令在 PATH 中", e))?;
         info!("[open_in_vscode] 完成");

@@ -8,3 +8,4 @@ pub mod running_sessions;
 pub mod window_manager;
 pub mod launch;
 pub mod git;
+pub mod process;

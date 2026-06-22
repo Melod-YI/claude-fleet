@@ -1,4 +1,3 @@
-use std::process::Command;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;
@@ -154,13 +153,9 @@ struct EnumWindowsTitleData {
 fn get_parent_pid(pid: u32) -> Option<u32> {
     debug!("[get_parent_pid] 查询 PID {} 的父进程", pid);
 
-    // 使用 wmic 命令获取父进程 PID（隐藏窗口）
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-    let output = Command::new("wmic")
+    // 使用 wmic 命令获取父进程 PID
+    let output = crate::utils::process::command("wmic")
         .args(["process", "where", &format!("ProcessId={}", pid), "get", "ParentProcessId"])
-        .creation_flags(CREATE_NO_WINDOW)
         .output();
 
     match output {

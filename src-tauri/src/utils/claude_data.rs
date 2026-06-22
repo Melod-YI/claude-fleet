@@ -515,13 +515,8 @@ fn is_process_running(pid: u32) -> bool {
     // Windows: 使用 tasklist 检查进程
     #[cfg(target_os = "windows")]
     {
-        use std::process::Command;
-        use std::os::windows::process::CommandExt;
-        // CREATE_NO_WINDOW: 隐藏命令行窗口
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        let output = Command::new("tasklist")
+        let output = crate::utils::process::command("tasklist")
             .args(["/FI", &format!("PID eq {}", pid), "/NH"])
-            .creation_flags(CREATE_NO_WINDOW)
             .output();
 
         if let Ok(output) = output {
@@ -560,14 +555,9 @@ fn is_process_running(pid: u32) -> bool {
 #[cfg(target_os = "windows")]
 pub fn is_claude_process_running(pid: u32) -> bool {
     debug!("[is_claude_process_running] 检查 PID {} 是否为 claude 进程", pid);
-    use std::process::Command;
-    use std::os::windows::process::CommandExt;
-    // CREATE_NO_WINDOW: 隐藏命令行窗口
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-    let output = Command::new("tasklist")
+    let output = crate::utils::process::command("tasklist")
         .args(["/FI", &format!("PID eq {}", pid), "/NH"])
-        .creation_flags(CREATE_NO_WINDOW)
         .output();
 
     if let Ok(output) = output {
