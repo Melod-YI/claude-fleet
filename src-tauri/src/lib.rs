@@ -30,6 +30,7 @@ use db::favorites::{add_favorite_cmd, remove_favorite_cmd, is_favorite_cmd, get_
 use db::favorite_paths::{record_path_usage_cmd, remove_favorite_path_cmd, get_sorted_favorite_paths_cmd, toggle_pin_path_cmd};
 use db::settings::{get_setting_cmd, set_setting_cmd, get_all_settings_cmd};
 use db::migration::needs_migration_cmd;
+use db::tracked_repos::{add_tracked_repo_cmd, remove_tracked_repo_cmd, list_tracked_repos_cmd};
 use tracing::{info, error};
 use std::time::Instant;
 
@@ -151,6 +152,10 @@ pub fn run() {
             create_worktree_cmd,
             list_worktrees_cmd,
             get_repo_info_cmd,
+            // Tracked repos commands
+            add_tracked_repo_cmd,
+            remove_tracked_repo_cmd,
+            list_tracked_repos_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
