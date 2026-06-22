@@ -8,7 +8,10 @@ export const worktreesApi = {
   },
 
   async addTrackedRepo(path: string, name: string): Promise<TrackedRepo> {
-    return await invoke("add_tracked_repo", { path, name })
+    console.log("[api] addTrackedRepo 调用 invoke:", { path, name })
+    const result = await invoke("add_tracked_repo", { path, name })
+    console.log("[api] addTrackedRepo 返回:", result)
+    return result as TrackedRepo
   },
 
   async removeTrackedRepo(id: number): Promise<void> {
