@@ -53,23 +53,46 @@ export function CreateWorktreeDialog({
       setName("")
       setShowAdvanced(false)
       setCustomBranch("")
-      setBaseRef("")
+      // Restore last selected baseRef from localStorage
+      const savedBaseRef = localStorage.getItem("createWorktree:lastBaseRef") ?? ""
+      setBaseRef(savedBaseRef)
     }
   }, [open])
 
-  // Set default baseRef when repoInfo loads
+  // Set default baseRef when repoInfo loads (only if not already set or saved value invalid)
   useEffect(() => {
-    if (repoInfo && !baseRef) {
-      const originDefault = `origin/${repoInfo.defaultBranch}`
-      const hasOriginDefault = repoInfo.remoteBranches.includes(originDefault)
-      setBaseRef(hasOriginDefault ? originDefault : repoInfo.defaultBranch)
+    if (!repoInfo) return
+
+    // If baseRef is already set, validate it still exists in this repo
+    if (baseRef) {
+      const allBranches = [...repoInfo.remoteBranches, ...repoInfo.localBranches]
+      if (allBranches.includes(baseRef) || baseRef === repoInfo.defaultBranch) {
+        return // saved value is valid for this repo
+      }
     }
+
+    // Priority: upstream > origin > bare default branch
+    const upstreamDefault = `upstream/${repoInfo.defaultBranch}`
+    if (repoInfo.remoteBranches.includes(upstreamDefault)) {
+      setBaseRef(upstreamDefault)
+      return
+    }
+    const originDefault = `origin/${repoInfo.defaultBranch}`
+    if (repoInfo.remoteBranches.includes(originDefault)) {
+      setBaseRef(originDefault)
+      return
+    }
+    setBaseRef(repoInfo.defaultBranch)
   }, [repoInfo, baseRef])
 
   const handleCreate = async () => {
     if (!name.trim()) return
 
     try {
+      // Persist the selected baseRef for next time
+      if (effectiveBaseRef) {
+        localStorage.setItem("createWorktree:lastBaseRef", effectiveBaseRef)
+      }
       const result = await createMutation.mutateAsync({
         repoPath,
         name: name.trim(),

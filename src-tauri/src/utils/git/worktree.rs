@@ -210,7 +210,7 @@ pub fn create_worktree(opts: &CreateWorktreeOptions) -> Result<WorktreeInfo, Str
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
-        .as_secs() as i64;
+        .as_millis() as i64;
 
     let info = WorktreeInfo {
         id: 0, // 插入后由数据库分配
