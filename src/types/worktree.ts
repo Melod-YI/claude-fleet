@@ -39,3 +39,10 @@ export interface WorktreeListItem {
   isMain: boolean
   status: WorktreeStatus
 }
+
+export interface TrackedRepo {
+  id: number
+  path: string
+  name: string
+  addedAt: number
+}
