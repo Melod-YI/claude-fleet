@@ -30,16 +30,16 @@ export const useRemoveTrackedRepoMutation = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (id: number) => {
+    mutationFn: async ({ id, repoPath }: { id: number; repoPath: string }) => {
       await worktreesApi.removeTrackedRepo(id)
-      return id
+      return { id, repoPath }
     },
-    onSuccess: (id) => {
+    onSuccess: ({ id, repoPath }) => {
       queryClient.setQueryData<TrackedRepo[]>(["trackedRepos"], (current) =>
         (current ?? []).filter((repo) => repo.id !== id)
       )
-      // Remove cached worktrees for this repo
-      queryClient.removeQueries({ queryKey: ["worktrees"] })
+      // Remove cached worktrees only for this specific repo
+      queryClient.removeQueries({ queryKey: ["worktrees", repoPath] })
       toast.success("已从列表中移除仓库")
     },
     onError: (error: Error) => {

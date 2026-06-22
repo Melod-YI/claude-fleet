@@ -56,10 +56,11 @@ export function WorktreeTab() {
   }, [trackedRepos])
 
   const handleConfirmRemoveRepo = useCallback(() => {
-    removeRepoMutation.mutate(removeRepoConfirm.repoId)
-    if (selectedWorktree) {
-      const removedRepo = trackedRepos.find((r) => r.id === removeRepoConfirm.repoId)
-      if (removedRepo && selectedWorktree.repoName === removedRepo.name) {
+    const removedRepo = trackedRepos.find((r) => r.id === removeRepoConfirm.repoId)
+    if (removedRepo) {
+      removeRepoMutation.mutate({ id: removedRepo.id, repoPath: removedRepo.path })
+      // Clear selection if the selected worktree belongs to the removed repo
+      if (selectedWorktree && selectedWorktree.path.startsWith(removedRepo.path)) {
         setSelectedWorktree(null)
       }
     }
@@ -158,8 +159,20 @@ export function WorktreeTab() {
         open={createDialogOpen}
         onClose={() => setCreateDialogOpen(false)}
         repoPath={createDialogRepoPath}
-        onCreated={() => {
-          // Query invalidation handled by mutation's onSuccess
+        onCreated={(worktreeInfo) => {
+          // Auto-select the newly created worktree
+          setSelectedWorktree({
+            id: worktreeInfo.id,
+            name: worktreeInfo.name,
+            path: worktreeInfo.path,
+            branch: worktreeInfo.branch,
+            baseRef: worktreeInfo.baseRef,
+            createdAt: worktreeInfo.createdAt,
+            repoName: worktreeInfo.repoName,
+            head: "",
+            isMain: false,
+            status: "active" as const,
+          })
         }}
       />
 
