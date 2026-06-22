@@ -19,6 +19,7 @@ import {
 import { Loader2, ChevronDown, ChevronRight } from "lucide-react"
 import { useRepoInfoQuery } from "@/lib/query/worktreeQueries"
 import { useCreateWorktreeMutation } from "@/lib/query/worktreeMutations"
+import { useSettingsStore } from "@/stores/settingsStore"
 import type { WorktreeInfo } from "@/types"
 
 interface CreateWorktreeDialogProps {
@@ -46,6 +47,8 @@ export function CreateWorktreeDialog({
     open ? repoPath : undefined
   )
   const createMutation = useCreateWorktreeMutation()
+  const lastBaseRef = useSettingsStore((s) => s.lastBaseRef)
+  const setLastBaseRef = useSettingsStore((s) => s.setLastBaseRef)
 
   // Reset state when dialog opens
   useEffect(() => {
@@ -53,11 +56,10 @@ export function CreateWorktreeDialog({
       setName("")
       setShowAdvanced(false)
       setCustomBranch("")
-      // Restore last selected baseRef from localStorage
-      const savedBaseRef = localStorage.getItem("createWorktree:lastBaseRef") ?? ""
-      setBaseRef(savedBaseRef)
+      // Restore last selected baseRef from settings store
+      setBaseRef(lastBaseRef)
     }
-  }, [open])
+  }, [open, lastBaseRef])
 
   // Set default baseRef when repoInfo loads (only if not already set or saved value invalid)
   useEffect(() => {
@@ -91,7 +93,7 @@ export function CreateWorktreeDialog({
     try {
       // Persist the selected baseRef for next time
       if (effectiveBaseRef) {
-        localStorage.setItem("createWorktree:lastBaseRef", effectiveBaseRef)
+        setLastBaseRef(effectiveBaseRef)
       }
       const result = await createMutation.mutateAsync({
         repoPath,

@@ -27,6 +27,7 @@ interface SettingsState extends AppSettings {
   setTheme: (theme: 'light' | 'dark' | 'system') => Promise<void>
   setTerminalType: (type: TerminalType) => Promise<void>
   setLaunchSettings: (settings: LaunchSettings) => Promise<void>
+  setLastBaseRef: (ref: string) => Promise<void>
   getSortedFavoritePaths: () => FavoritePath[]
 }
 
@@ -39,6 +40,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   theme: 'system',
   terminalType: 'wezterm',
   launchSettings: createDefaultLaunchSettings('wezterm'),
+  lastBaseRef: '',
 }
 
 export const useSettingsStore = create<SettingsState>()((set, get) => ({
@@ -72,6 +74,10 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
 
       const terminalId = parsed.terminalType ?? DEFAULT_SETTINGS.terminalType
       parsed.launchSettings = parseLaunchSettings(settings['launchSettings'], terminalId)
+
+      if (settings['lastBaseRef']) {
+        parsed.lastBaseRef = settings['lastBaseRef']
+      }
 
       const paths = await getSortedFavoritePaths()
       parsed.favoritePaths = { paths }
@@ -148,6 +154,11 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
       await setSetting('terminalType', terminalType)
     }
     set({ launchSettings: settings, terminalType })
+  },
+
+  setLastBaseRef: async (ref) => {
+    await setSetting('lastBaseRef', ref)
+    set({ lastBaseRef: ref })
   },
 
   getSortedFavoritePaths: () => {
