@@ -23,10 +23,17 @@ pub fn execute_git(repo_path: &Path, args: &[&str]) -> Result<String, String> {
     let display_args = args.join(" ");
     debug!("[execute_git] git -C {} {}", repo_path.display(), display_args);
 
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(args)
+    let mut cmd = Command::new("git");
+    cmd.arg("-C").arg(repo_path).args(args);
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let output = cmd
         .output()
         .map_err(|e| format!("无法执行 git 命令: {}", e))?;
 
