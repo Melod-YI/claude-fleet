@@ -18,7 +18,7 @@ pub struct TrackedRepo {
 
 /// 添加跟踪仓库。path 有 UNIQUE 约束，重复插入会报错。
 pub fn add_tracked_repo(conn: &Connection, path: &str, name: &str) -> Result<TrackedRepo> {
-    info!("[add_tracked_repo] 添加仓库: path={}, name={}", path, name);
+    tracing::debug!("[add_tracked_repo] 添加仓库: path={}, name={}", path, name);
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -42,15 +42,18 @@ pub fn add_tracked_repo(conn: &Connection, path: &str, name: &str) -> Result<Tra
 
 /// 删除跟踪仓库
 pub fn remove_tracked_repo(conn: &Connection, id: i64) -> Result<()> {
-    info!("[remove_tracked_repo] 删除仓库: id={}", id);
-    conn.execute("DELETE FROM tracked_repos WHERE id = ?1", params![id])?;
+    tracing::debug!("[remove_tracked_repo] 删除仓库: id={}", id);
+    let changes = conn.execute("DELETE FROM tracked_repos WHERE id = ?1", params![id])?;
+    if changes == 0 {
+        tracing::warn!("[remove_tracked_repo] 未找到 id={}", id);
+    }
     info!("[remove_tracked_repo] 成功删除");
     Ok(())
 }
 
 /// 列出所有跟踪仓库
 pub fn list_tracked_repos(conn: &Connection) -> Result<Vec<TrackedRepo>> {
-    info!("[list_tracked_repos] 查询所有仓库");
+    tracing::debug!("[list_tracked_repos] 查询所有仓库");
     let mut stmt = conn.prepare(
         "SELECT id, path, name, added_at FROM tracked_repos ORDER BY added_at DESC, id DESC"
     )?;
