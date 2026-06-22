@@ -7,6 +7,20 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 
+/// 归一化路径分隔符。
+/// Git 在 Windows 上输出正斜杠（C:/path），而 Rust PathBuf 使用反斜杠（C:\path）。
+/// 在路径进入系统时调用此函数，统一为平台原生格式。
+pub fn normalize_path(path: &str) -> String {
+    #[cfg(target_os = "windows")]
+    {
+        path.replace('/', "\\")
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        path.to_string()
+    }
+}
+
 /// 远程仓库信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -166,8 +180,8 @@ pub fn branch_exists(repo_path: &Path, branch: &str) -> bool {
 /// 对于主仓库：返回 repo_path 的父目录。
 /// 对于 worktree：通过 git-common-dir 定位主仓库，再取其父目录。
 pub fn get_repo_parent(repo_path: &Path) -> Result<PathBuf, String> {
-    let common_dir = execute_git(repo_path, &["rev-parse", "--git-common-dir"])?;
-    let git_dir = execute_git(repo_path, &["rev-parse", "--git-dir"])?;
+    let common_dir = normalize_path(&execute_git(repo_path, &["rev-parse", "--git-common-dir"])?);
+    let git_dir = normalize_path(&execute_git(repo_path, &["rev-parse", "--git-dir"])?);
 
     let repo_root: PathBuf = if common_dir != git_dir {
         // 在 worktree 中：common_dir 指向主仓库的 .git
@@ -182,7 +196,7 @@ pub fn get_repo_parent(repo_path: &Path) -> Result<PathBuf, String> {
         }
     } else {
         // 在主仓库中
-        let toplevel = execute_git(repo_path, &["rev-parse", "--show-toplevel"])?;
+        let toplevel = normalize_path(&execute_git(repo_path, &["rev-parse", "--show-toplevel"])?);
         PathBuf::from(&toplevel)
     };
 
