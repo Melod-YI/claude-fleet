@@ -3,6 +3,13 @@ import { toast } from "sonner"
 import { worktreesApi } from "@/lib/api/worktrees"
 import type { TrackedRepo } from "@/types"
 
+/** Tauri invoke 可能抛出字符串而非 Error 对象，需要安全提取消息 */
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === "string") return error
+  return String(error)
+}
+
 export const useAddTrackedRepoMutation = () => {
   const queryClient = useQueryClient()
 
@@ -16,11 +23,12 @@ export const useAddTrackedRepoMutation = () => {
       )
       toast.success(`已添加仓库: ${repo.name}`)
     },
-    onError: (error: Error) => {
-      if (error.message.includes("UNIQUE constraint")) {
+    onError: (error: unknown) => {
+      const msg = getErrorMessage(error)
+      if (msg.includes("UNIQUE constraint")) {
         toast.error("该仓库已在列表中")
       } else {
-        toast.error(`添加仓库失败: ${error.message}`)
+        toast.error(`添加仓库失败: ${msg}`)
       }
     },
   })
@@ -42,8 +50,8 @@ export const useRemoveTrackedRepoMutation = () => {
       queryClient.removeQueries({ queryKey: ["worktrees", repoPath] })
       toast.success("已从列表中移除仓库")
     },
-    onError: (error: Error) => {
-      toast.error(`移除仓库失败: ${error.message}`)
+    onError: (error: unknown) => {
+      toast.error(`移除仓库失败: ${getErrorMessage(error)}`)
     },
   })
 }
@@ -69,8 +77,8 @@ export const useCreateWorktreeMutation = () => {
       queryClient.invalidateQueries({ queryKey: ["worktrees", variables.repoPath] })
       toast.success(`Worktree "${_data.name}" 创建成功`)
     },
-    onError: (error: Error) => {
-      toast.error(`创建 Worktree 失败: ${error.message}`)
+    onError: (error: unknown) => {
+      toast.error(`创建 Worktree 失败: ${getErrorMessage(error)}`)
     },
   })
 }
