@@ -35,20 +35,16 @@ export function WorktreeTab() {
 
   const handleAddRepo = useCallback(async () => {
     try {
-      console.log("[handleAddRepo] 打开文件夹选择器...")
       const selected = await openDialog({ directory: true, multiple: false })
-      console.log("[handleAddRepo] 选择结果:", selected, "类型:", typeof selected)
       if (!selected) return
 
       const path = selected as string
       const parts = path.split(/[\\/]/).filter(Boolean)
       const name = parts.pop() || "unknown"
-      console.log("[handleAddRepo] path:", path, "name:", name)
 
-      console.log("[handleAddRepo] 调用 mutation...")
       addRepoMutation.mutate({ path, name })
     } catch (e) {
-      console.error("[handleAddRepo] 异常:", e)
+      console.error("添加仓库失败:", e)
     }
   }, [addRepoMutation])
 

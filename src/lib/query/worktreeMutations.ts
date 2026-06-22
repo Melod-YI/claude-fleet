@@ -18,14 +18,12 @@ export const useAddTrackedRepoMutation = () => {
       return await worktreesApi.addTrackedRepo(path, name)
     },
     onSuccess: (repo: TrackedRepo) => {
-      console.log("[addTrackedRepo] onSuccess, repo:", repo)
       queryClient.setQueryData<TrackedRepo[]>(["trackedRepos"], (current) =>
         [repo, ...(current ?? [])]
       )
       toast.success(`已添加仓库: ${repo.name}`)
     },
     onError: (error: unknown) => {
-      console.error("[addTrackedRepo] onError, error:", error, "类型:", typeof error)
       const msg = getErrorMessage(error)
       if (msg.includes("UNIQUE constraint")) {
         toast.error("该仓库已在列表中")

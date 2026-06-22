@@ -4,18 +4,15 @@ import type { TrackedRepo, WorktreeListItem, WorktreeInfo, RepoInfo } from "@/ty
 export const worktreesApi = {
   // Tracked repos
   async listTrackedRepos(): Promise<TrackedRepo[]> {
-    return await invoke("list_tracked_repos")
+    return await invoke("list_tracked_repos_cmd")
   },
 
   async addTrackedRepo(path: string, name: string): Promise<TrackedRepo> {
-    console.log("[api] addTrackedRepo 调用 invoke:", { path, name })
-    const result = await invoke("add_tracked_repo", { path, name })
-    console.log("[api] addTrackedRepo 返回:", result)
-    return result as TrackedRepo
+    return await invoke("add_tracked_repo_cmd", { path, name })
   },
 
   async removeTrackedRepo(id: number): Promise<void> {
-    return await invoke("remove_tracked_repo", { id })
+    return await invoke("remove_tracked_repo_cmd", { id })
   },
 
   // Worktrees
