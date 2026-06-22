@@ -64,6 +64,12 @@ pub fn init_tables() -> Result<()> {
             repo_path TEXT NOT NULL,
             base_ref TEXT NOT NULL,
             created_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS tracked_repos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            path TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            added_at INTEGER NOT NULL
         );"
     )?;
 
