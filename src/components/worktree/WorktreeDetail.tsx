@@ -1,4 +1,4 @@
-import { Play, FolderOpen, Code, Trash2, ChevronRight } from "lucide-react"
+import { Play, FolderOpen, Code, Trash2, ChevronRight, GitBranch } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -23,7 +23,7 @@ export function WorktreeDetail({
   onLaunchClaude,
   onOpenDirectory,
   onOpenVSCode,
-  onDelete: _onDelete,
+  onDelete,
 }: WorktreeDetailProps) {
   if (!worktree) {
     return (
@@ -61,24 +61,47 @@ export function WorktreeDetail({
         <InfoRow label="创建时间" value={formatDate(worktree.createdAt)} />
       </div>
 
-      {/* Git status placeholder */}
+      {/* Git status */}
       <div className="bg-muted/40 rounded-lg p-3 mb-4">
-        <h3 className="text-sm font-medium mb-2">Git 状态</h3>
+        <h3 className="text-sm font-medium mb-2 flex items-center gap-1">
+          <GitBranch className="w-3.5 h-3.5" />
+          Git 状态
+        </h3>
         <div className="flex gap-4 text-sm">
           <div className="flex items-center gap-1">
-            <span className="text-muted-foreground">--</span>
+            <span className={cn(
+              "tabular-nums",
+              worktree.ahead != null && worktree.ahead > 0
+                ? "text-green-600 font-medium"
+                : "text-muted-foreground"
+            )}>
+              {worktree.ahead ?? "--"}
+            </span>
             <span className="text-muted-foreground/60">ahead</span>
           </div>
           <div className="flex items-center gap-1">
-            <span className="text-muted-foreground">--</span>
+            <span className={cn(
+              "tabular-nums",
+              worktree.behind != null && worktree.behind > 0
+                ? "text-orange-500 font-medium"
+                : "text-muted-foreground"
+            )}>
+              {worktree.behind ?? "--"}
+            </span>
             <span className="text-muted-foreground/60">behind</span>
           </div>
           <div className="flex items-center gap-1">
-            <span className="text-muted-foreground">--</span>
+            <span className={cn(
+              "tabular-nums",
+              worktree.uncommittedChanges != null && worktree.uncommittedChanges > 0
+                ? "text-red-500 font-medium"
+                : "text-muted-foreground"
+            )}>
+              {worktree.uncommittedChanges ?? "--"}
+            </span>
             <span className="text-muted-foreground/60">未提交变更</span>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground/50 mt-2">Git 状态功能将在后续版本中实现</p>
       </div>
 
       {/* Action buttons */}
@@ -114,9 +137,7 @@ export function WorktreeDetail({
         <Button
           variant="outline"
           size="sm"
-          disabled
-          title="功能开发中"
-          className="opacity-50"
+          onClick={() => onDelete(worktree)}
         >
           <Trash2 className="w-4 h-4 mr-1" />
           删除

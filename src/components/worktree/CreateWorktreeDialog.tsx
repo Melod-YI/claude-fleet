@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import {
   Dialog,
   DialogContent,
@@ -16,7 +16,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Loader2, ChevronDown, ChevronRight } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { Loader2, ChevronDown, ChevronRight, RefreshCw } from "lucide-react"
 import { useRepoInfoQuery } from "@/lib/query/worktreeQueries"
 import { useCreateWorktreeMutation } from "@/lib/query/worktreeMutations"
 import { useSettingsStore } from "@/stores/settingsStore"
@@ -42,8 +43,10 @@ export function CreateWorktreeDialog({
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [customBranch, setCustomBranch] = useState("")
   const [baseRef, setBaseRef] = useState("")
+  const [branchSearch, setBranchSearch] = useState("")
+  const branchSearchRef = useRef<HTMLInputElement>(null)
 
-  const { data: repoInfo, isLoading: repoInfoLoading } = useRepoInfoQuery(
+  const { data: repoInfo, isLoading: repoInfoLoading, refetch: refetchRepoInfo, isFetching: repoInfoFetching } = useRepoInfoQuery(
     open ? repoPath : undefined
   )
   const createMutation = useCreateWorktreeMutation()
@@ -56,6 +59,7 @@ export function CreateWorktreeDialog({
       setName("")
       setShowAdvanced(false)
       setCustomBranch("")
+      setBranchSearch("")
       // Restore last selected baseRef from settings store
       setBaseRef(lastBaseRef)
     }
@@ -124,11 +128,26 @@ export function CreateWorktreeDialog({
       ]
     : []
 
+  // Filter by search query (case-insensitive contains)
+  const filteredBranchOptions = branchSearch.trim()
+    ? branchOptions.filter((opt) =>
+        opt.value.toLowerCase().includes(branchSearch.trim().toLowerCase())
+      )
+    : branchOptions
+
   // Compute effective values before JSX (used in summary bar and create handler)
   const effectiveBranch = showAdvanced && customBranch.trim()
     ? customBranch.trim()
     : name.trim()
   const effectiveBaseRef = baseRef || "main"
+
+  // Check if the target branch already exists (case-sensitive, git is case-sensitive for branches)
+  const branchExists = effectiveBranch
+    ? branchOptions.some((opt) => opt.value === effectiveBranch)
+    : false
+  const branchError = branchExists
+    ? `分支 "${effectiveBranch}" 已存在，请更换名称`
+    : null
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -147,8 +166,9 @@ export function CreateWorktreeDialog({
               onChange={(e) => setName(e.target.value)}
               placeholder="例如: feature-auth"
               autoFocus
+              autoComplete="off"
               onKeyDown={(e) => {
-                if (e.key === "Enter" && name.trim() && !nameError) {
+                if (e.key === "Enter" && name.trim() && !nameError && !branchExists) {
                   handleCreate()
                 }
               }}
@@ -160,10 +180,18 @@ export function CreateWorktreeDialog({
 
           {/* Auto-config summary */}
           {name.trim() && (
-            <div className="bg-violet-50 border border-violet-200 rounded-md px-3 py-2 text-sm text-violet-700">
+            <div className={cn(
+              "border rounded-md px-3 py-2 text-sm",
+              branchExists
+                ? "bg-red-50 border-red-200 text-red-700"
+                : "bg-violet-50 border-violet-200 text-violet-700"
+            )}>
               分支：<span className="font-medium">{effectiveBranch}</span>
               {" · "}基于：<span className="font-medium">{effectiveBaseRef}</span>
             </div>
+          )}
+          {branchError && (
+            <p className="text-xs text-destructive">{branchError}</p>
           )}
 
           {/* Advanced toggle */}
@@ -192,30 +220,69 @@ export function CreateWorktreeDialog({
                   value={customBranch}
                   onChange={(e) => setCustomBranch(e.target.value)}
                   placeholder="自动"
+                  autoComplete="off"
                 />
               </div>
 
               <div className="flex flex-col gap-2">
-                <Label className="text-sm">基于分支 / ref</Label>
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm">基于分支 / ref</Label>
+                  <button
+                    type="button"
+                    onClick={() => refetchRepoInfo()}
+                    disabled={repoInfoFetching}
+                    className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                    title="刷新分支列表"
+                  >
+                    <RefreshCw className={cn("w-3 h-3", repoInfoFetching && "animate-spin")} />
+                  </button>
+                </div>
                 {repoInfoLoading ? (
                   <div className="text-sm text-muted-foreground flex items-center gap-2">
                     <Loader2 className="w-3 h-3 animate-spin" />
                     加载分支列表...
                   </div>
                 ) : (
-                  <Select value={baseRef} onValueChange={setBaseRef}>
+                  <Select value={baseRef} onValueChange={setBaseRef} onOpenChange={(open) => {
+                    if (open) {
+                      setBranchSearch("")
+                      // Auto-focus search input after SelectContent mounts
+                      requestAnimationFrame(() => branchSearchRef.current?.focus())
+                    }
+                  }}>
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="选择基准分支" />
                     </SelectTrigger>
                     <SelectContent>
-                      {branchOptions.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                          {opt.group === "remote" && (
-                            <span className="ml-2 text-xs text-muted-foreground">remote</span>
-                          )}
-                        </SelectItem>
-                      ))}
+                      <div className="px-1 pb-1">
+                        <Input
+                          ref={branchSearchRef}
+                          value={branchSearch}
+                          onChange={(e) => setBranchSearch(e.target.value)}
+                          placeholder="搜索分支..."
+                          className="h-8 text-xs"
+                          onKeyDown={(e) => {
+                            // Prevent Radix Select from hijacking keyboard navigation
+                            if (e.key !== "Escape" && e.key !== "Enter") {
+                              e.stopPropagation()
+                            }
+                          }}
+                        />
+                      </div>
+                      {filteredBranchOptions.length === 0 ? (
+                        <div className="px-2 py-4 text-center text-xs text-muted-foreground">
+                          未找到匹配的分支
+                        </div>
+                      ) : (
+                        filteredBranchOptions.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                            {opt.group === "remote" && (
+                              <span className="ml-2 text-xs text-muted-foreground">remote</span>
+                            )}
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
                 )}
@@ -231,7 +298,7 @@ export function CreateWorktreeDialog({
           <Button
             variant="default"
             onClick={handleCreate}
-            disabled={!name.trim() || !!nameError || createMutation.isPending}
+            disabled={!name.trim() || !!nameError || branchExists || createMutation.isPending}
             className="bg-violet-600 hover:bg-violet-700"
           >
             {createMutation.isPending ? (

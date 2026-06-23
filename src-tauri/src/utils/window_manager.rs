@@ -9,6 +9,7 @@ use windows::{
     Win32::Foundation::*,
     Win32::UI::WindowsAndMessaging::*,
     Win32::UI::Input::KeyboardAndMouse::*,
+    Win32::System::Diagnostics::ToolHelp::*,
 };
 
 // --- 窗口 HWND 缓存 ---
@@ -148,38 +149,45 @@ struct EnumWindowsTitleData {
     found_title: Option<String>,
 }
 
-/// 获取父进程 PID（通过 WMI 命令）
+/// 获取父进程 PID（使用 Win32 CreateToolhelp32Snapshot API，避免 spawn wmic 进程）
 #[cfg(target_os = "windows")]
 fn get_parent_pid(pid: u32) -> Option<u32> {
     debug!("[get_parent_pid] 查询 PID {} 的父进程", pid);
 
-    // 使用 wmic 命令获取父进程 PID
-    let output = crate::utils::process::command("wmic")
-        .args(["process", "where", &format!("ProcessId={}", pid), "get", "ParentProcessId"])
-        .output();
-
-    match output {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            debug!("[get_parent_pid] wmic 输出: {}", stdout);
-
-            // 解析输出：格式为 "ParentProcessId\n<pid>\n"
-            let lines: Vec<&str> = stdout.lines().collect();
-            if lines.len() >= 2 {
-                let parent_pid_str = lines[1].trim();
-                if let Ok(parent_pid) = parent_pid_str.parse::<u32>() {
-                    info!("[get_parent_pid] PID {} 的父进程是 {}", pid, parent_pid);
-                    return Some(parent_pid);
-                }
-            }
-            warn!("[get_parent_pid] 无法解析父进程 PID");
-            None
-        }
+    let snapshot = match unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) } {
+        Ok(handle) => handle,
         Err(e) => {
-            warn!("[get_parent_pid] wmic 命令执行失败: {}", e);
-            None
+            warn!("[get_parent_pid] CreateToolhelp32Snapshot 失败: {}", e);
+            return None;
+        }
+    };
+
+    let mut entry = PROCESSENTRY32 {
+        dwSize: std::mem::size_of::<PROCESSENTRY32>() as u32,
+        ..Default::default()
+    };
+
+    let mut parent_pid = None;
+
+    if unsafe { Process32First(snapshot, &mut entry) }.is_ok() {
+        loop {
+            if entry.th32ProcessID == pid {
+                parent_pid = Some(entry.th32ParentProcessID);
+                info!("[get_parent_pid] PID {} 的父进程是 {}", pid, entry.th32ParentProcessID);
+                break;
+            }
+            if unsafe { Process32Next(snapshot, &mut entry) }.is_err() {
+                break;
+            }
         }
     }
+
+    let _ = unsafe { CloseHandle(snapshot) };
+
+    if parent_pid.is_none() {
+        warn!("[get_parent_pid] 未在进程快照中找到 PID {}", pid);
+    }
+    parent_pid
 }
 
 /// 通过进程 ID 向上查找父进程链，直到找到持有窗口的进程

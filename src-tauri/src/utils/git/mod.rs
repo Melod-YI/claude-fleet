@@ -206,6 +206,36 @@ pub fn get_repo_parent(repo_path: &Path) -> Result<PathBuf, String> {
         .ok_or_else(|| "无法获取仓库父目录".to_string())
 }
 
+/// 获取 worktree 相对 base_ref 的 ahead/behind 提交数。
+/// `repo_path` 指向 worktree 目录，`base_ref` 可以是 `origin/main` 或 `main`。
+pub fn get_ahead_behind(repo_path: &Path, branch: &str, base_ref: &str) -> Result<(u32, u32), String> {
+    let remote_ref = if base_ref.starts_with("origin/") {
+        base_ref.to_string()
+    } else {
+        format!("origin/{}", base_ref)
+    };
+
+    let range = format!("{}...{}", branch, remote_ref);
+    let output = execute_git(repo_path, &["rev-list", "--left-right", "--count", &range])?;
+
+    let parts: Vec<&str> = output.split_whitespace().collect();
+    if parts.len() >= 2 {
+        let ahead = parts[0].parse::<u32>().unwrap_or(0);
+        let behind = parts[1].parse::<u32>().unwrap_or(0);
+        Ok((ahead, behind))
+    } else {
+        Err(format!("无法解析 rev-list 输出: {}", output))
+    }
+}
+
+/// 获取未提交变更文件数（staged + unstaged + untracked）。
+/// `repo_path` 指向 worktree 目录。
+pub fn get_dirty_file_count(repo_path: &Path) -> Result<u32, String> {
+    let output = execute_git(repo_path, &["status", "--porcelain"])?;
+    let count = output.lines().filter(|l| !l.is_empty()).count() as u32;
+    Ok(count)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

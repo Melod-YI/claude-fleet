@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { open as openDialog } from "@tauri-apps/plugin-dialog"
-import { Plus, RefreshCw } from "lucide-react"
+import { RefreshCw } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/dialogs"
@@ -12,6 +12,7 @@ import { useTrackedReposQuery } from "@/lib/query/worktreeQueries"
 import {
   useAddTrackedRepoMutation,
   useRemoveTrackedRepoMutation,
+  useDeleteWorktreeMutation,
 } from "@/lib/query/worktreeMutations"
 import { startNewSession } from "@/services/sessionLaunchService"
 import type { WorktreeListItem } from "@/types"
@@ -27,11 +28,17 @@ export function WorktreeTab() {
     repoId: number
     repoName: string
   }>({ open: false, repoId: 0, repoName: "" })
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    open: boolean
+    worktree: WorktreeListItem | null
+    deleteBranch: boolean
+  }>({ open: false, worktree: null, deleteBranch: true })
 
   const { data: trackedRepos = [] } = useTrackedReposQuery()
 
   const addRepoMutation = useAddTrackedRepoMutation()
   const removeRepoMutation = useRemoveTrackedRepoMutation()
+  const deleteWorktreeMutation = useDeleteWorktreeMutation()
 
   const handleAddRepo = useCallback(async () => {
     try {
@@ -66,6 +73,31 @@ export function WorktreeTab() {
     }
     setRemoveRepoConfirm({ open: false, repoId: 0, repoName: "" })
   }, [removeRepoMutation, removeRepoConfirm, selectedWorktree, trackedRepos])
+
+  const handleDeleteWorktree = useCallback((worktree: WorktreeListItem) => {
+    setDeleteConfirm({ open: true, worktree, deleteBranch: true })
+  }, [])
+
+  const handleConfirmDelete = useCallback(() => {
+    if (!deleteConfirm.worktree) return
+    const wt = deleteConfirm.worktree
+    // 从 trackedRepos 找到对应的 repoPath
+    const repo = trackedRepos.find((r) => wt.path.startsWith(r.path + "/") || wt.path.startsWith(r.path + "\\"))
+    const repoPath = repo?.path ?? wt.path
+
+    // 立即清空详情面板（不等 mutation 返回）
+    if (selectedWorktree?.path === wt.path) {
+      setSelectedWorktree(null)
+    }
+
+    deleteWorktreeMutation.mutate({
+      path: wt.path,
+      repoPath,
+      branch: wt.branch ?? null,
+      deleteBranch: deleteConfirm.deleteBranch,
+    })
+    setDeleteConfirm({ open: false, worktree: null, deleteBranch: true })
+  }, [deleteWorktreeMutation, deleteConfirm, selectedWorktree, trackedRepos])
 
   const handleAddWorktree = useCallback((repoPath: string) => {
     setCreateDialogRepoPath(repoPath)
@@ -102,22 +134,6 @@ export function WorktreeTab() {
         <h2 className="text-base font-semibold text-gray-900 shrink-0">Worktree</h2>
         <div className="w-px h-6 bg-gray-200" />
         <Button
-          variant="default"
-          size="sm"
-          onClick={() => {
-            if (trackedRepos.length > 0) {
-              setCreateDialogRepoPath(trackedRepos[0].path)
-              setCreateDialogOpen(true)
-            } else {
-              handleAddRepo()
-            }
-          }}
-          className="h-8 bg-violet-600 hover:bg-violet-700"
-        >
-          <Plus className="w-4 h-4 mr-1" />
-          新建 Worktree
-        </Button>
-        <Button
           variant="outline"
           size="sm"
           onClick={handleRefresh}
@@ -149,7 +165,7 @@ export function WorktreeTab() {
             onLaunchClaude={handleLaunchClaude}
             onOpenDirectory={handleOpenDirectory}
             onOpenVSCode={handleOpenVSCode}
-            onDelete={() => {}}
+            onDelete={handleDeleteWorktree}
           />
         </div>
       </div>
@@ -184,6 +200,17 @@ export function WorktreeTab() {
         title="移除仓库"
         description={`将从列表中移除「${removeRepoConfirm.repoName}」，不会删除本地文件。`}
         confirmText="移除"
+        variant="destructive"
+      />
+
+      {/* Delete worktree confirmation */}
+      <ConfirmDialog
+        open={deleteConfirm.open}
+        onClose={() => setDeleteConfirm({ open: false, worktree: null, deleteBranch: true })}
+        onConfirm={handleConfirmDelete}
+        title="删除 Worktree"
+        description={`将删除 worktree「${deleteConfirm.worktree?.name ?? ""}」的目录和分支，此操作不可撤销。`}
+        confirmText="删除"
         variant="destructive"
       />
     </div>

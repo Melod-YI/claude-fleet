@@ -182,14 +182,13 @@ pub fn create_worktree(opts: &CreateWorktreeOptions) -> Result<WorktreeInfo, Str
         }
     }
 
-    // 6. 创建分支（如果不存在）
-    if !branch_exists(&opts.repo_path, &opts.branch) {
-        info!("[create_worktree] 创建新分支: {} from {}", opts.branch, opts.base_ref);
-        execute_git(&opts.repo_path, &["branch", &opts.branch, &opts.base_ref])
-            .map_err(|e| format!("创建分支失败: {}", e))?;
-    } else {
-        info!("[create_worktree] 分支已存在: {}", opts.branch);
+    // 6. 创建分支（如果已存在则拒绝）
+    if branch_exists(&opts.repo_path, &opts.branch) {
+        return Err(format!("分支 \"{}\" 已存在，请更换分支名", opts.branch));
     }
+    info!("[create_worktree] 创建新分支: {} from {}", opts.branch, opts.base_ref);
+    execute_git(&opts.repo_path, &["branch", &opts.branch, &opts.base_ref])
+        .map_err(|e| format!("创建分支失败: {}", e))?;
 
     // 7. 确保 worktree 根目录存在
     fs::create_dir_all(&worktree_base)
@@ -225,6 +224,74 @@ pub fn create_worktree(opts: &CreateWorktreeOptions) -> Result<WorktreeInfo, Str
 
     info!("[create_worktree] 完成: {}", info.path);
     Ok(info)
+}
+
+/// 删除 worktree：移除 git worktree、可选删除分支
+///
+/// 步骤：
+/// 1. 如果目录存在 → `git worktree remove`（带 --force 处理未提交变更）
+/// 2. 如果目录不存在 → `git worktree prune`（清理残留元数据）
+/// 3. 如果 `delete_branch && branch.is_some()` → `git branch -D`
+///
+/// 所有 git 操作 best-effort：失败仅记录警告，不中断流程。
+pub fn delete_worktree(
+    repo_path: &Path,
+    worktree_path: &str,
+    branch: Option<&str>,
+    delete_branch: bool,
+) -> Result<(), String> {
+    info!("[delete_worktree] 开始: worktree={}, branch={:?}, delete_branch={}",
+          worktree_path, branch, delete_branch);
+
+    // 1. 移除 git worktree
+    let wt_path = Path::new(worktree_path);
+    if wt_path.exists() {
+        match execute_git(repo_path, &["worktree", "remove", worktree_path, "--force"]) {
+            Ok(_) => info!("[delete_worktree] git worktree remove 成功"),
+            Err(e) => warn!("[delete_worktree] git worktree remove 失败（继续）: {}", e),
+        }
+
+        // git worktree remove 会清空内容但可能留下空目录，手动清理
+        if wt_path.exists() {
+            match fs::read_dir(wt_path) {
+                Ok(entries) => {
+                    if entries.count() == 0 {
+                        if let Err(e) = fs::remove_dir(wt_path) {
+                            warn!("[delete_worktree] 清理空目录失败（继续）: {}", e);
+                        } else {
+                            info!("[delete_worktree] 已清理空目录: {}", worktree_path);
+                        }
+                    } else {
+                        info!("[delete_worktree] 目录非空，保留: {}", worktree_path);
+                    }
+                }
+                Err(e) => warn!("[delete_worktree] 读取目录失败: {}", e),
+            }
+        }
+    } else {
+        info!("[delete_worktree] 目录不存在，执行 worktree prune");
+        match execute_git(repo_path, &["worktree", "prune"]) {
+            Ok(_) => info!("[delete_worktree] worktree prune 成功"),
+            Err(e) => warn!("[delete_worktree] worktree prune 失败（继续）: {}", e),
+        }
+    }
+
+    // 2. 可选删除分支
+    if delete_branch {
+        if let Some(branch_name) = branch {
+            if branch_exists(repo_path, branch_name) {
+                match execute_git(repo_path, &["branch", "-D", branch_name]) {
+                    Ok(_) => info!("[delete_worktree] 分支 {} 已删除", branch_name),
+                    Err(e) => warn!("[delete_worktree] 删除分支失败（继续）: {}", e),
+                }
+            } else {
+                info!("[delete_worktree] 分支 {} 不存在，跳过", branch_name);
+            }
+        }
+    }
+
+    info!("[delete_worktree] 完成");
+    Ok(())
 }
 
 #[cfg(test)]

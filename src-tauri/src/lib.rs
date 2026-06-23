@@ -23,7 +23,7 @@ use commands::session_commands::{
 };
 use commands::terminal::{jump_to_terminal, jump_to_terminal_by_pid, smart_jump_to_terminal, resume_in_terminal, launch_session, open_directory, open_in_vscode};
 use commands::sound::{get_available_sounds, get_sound_data};
-use commands::worktree::{create_worktree_cmd, list_worktrees_cmd, get_repo_info_cmd};
+use commands::worktree::{create_worktree_cmd, list_worktrees_cmd, get_repo_info_cmd, delete_worktree_cmd};
 // 数据库命令
 use db::sessions_meta::{set_session_name_cmd, get_session_name_cmd, delete_session_name_cmd};
 use db::favorites::{add_favorite_cmd, remove_favorite_cmd, is_favorite_cmd, get_all_favorites_cmd};
@@ -33,6 +33,7 @@ use db::migration::needs_migration_cmd;
 use db::tracked_repos::{add_tracked_repo_cmd, remove_tracked_repo_cmd, list_tracked_repos_cmd};
 use tracing::{info, error};
 use std::time::Instant;
+use tauri::Emitter;
 
 /// 应用启动初始化
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -54,14 +55,26 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     let app_handle = app.handle();
 
-    // 初始化运行中 session 列表（扫描 sessions 目录）
-    info!("[setup] 步骤1: 初始化运行中 session 列表（扫描 sessions 目录）");
-    let init_start = Instant::now();
-    if let Err(e) = init_running() {
-        error!("[setup] 初始化运行中 session 列表失败: {}", e);
-    } else {
-        let elapsed = init_start.elapsed();
-        info!("[setup] 运行中 session 列表初始化成功，耗时: {}ms", elapsed.as_millis());
+    // 后台初始化运行中 session 列表（不阻塞 WebView 加载）
+    // 完成后通过事件通知前端
+    info!("[setup] 步骤1: 后台启动运行中 session 初始化");
+    {
+        let handle = app_handle.clone();
+        std::thread::spawn(move || {
+            let init_start = Instant::now();
+            match utils::running_sessions::init_running_sessions() {
+                Ok(sessions) => {
+                    let elapsed = init_start.elapsed();
+                    info!("[setup] 后台 session 初始化完成，{} 个 session，耗时: {}ms", sessions.len(), elapsed.as_millis());
+                    if let Err(e) = handle.emit("running_sessions_changed", &sessions) {
+                        error!("[setup] 发送 running_sessions_changed 事件失败: {}", e);
+                    }
+                }
+                Err(e) => {
+                    error!("[setup] 后台初始化运行中 session 列表失败: {}", e);
+                }
+            }
+        });
     }
 
     // 启动 sessions 目录监听服务
@@ -152,6 +165,7 @@ pub fn run() {
             create_worktree_cmd,
             list_worktrees_cmd,
             get_repo_info_cmd,
+            delete_worktree_cmd,
             // Tracked repos commands
             add_tracked_repo_cmd,
             remove_tracked_repo_cmd,

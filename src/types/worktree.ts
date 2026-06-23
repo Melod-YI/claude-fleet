@@ -38,6 +38,9 @@ export interface WorktreeListItem {
   branch: string | null
   isMain: boolean
   status: WorktreeStatus
+  ahead?: number
+  behind?: number
+  uncommittedChanges?: number
 }
 
 export interface TrackedRepo {

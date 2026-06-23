@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react"
-import { invoke } from '@tauri-apps/api/core'
 import { AppLayout } from "@/components/layout"
 import { RunningTab } from "@/components/running"
 import { ManagementTab } from "@/components/management"
@@ -74,11 +73,11 @@ function App() {
   // 使用通知 hook
   useNotification()
 
-  // 初始化应用：迁移数据 + 加载 stores
+  // 初始化应用：迁移数据 + 并行加载 stores
   useEffect(() => {
     async function initializeApp() {
       try {
-        // 检查是否需要迁移 localStorage 数据
+        // 检查是否需要迁移 localStorage 数据（一次性操作）
         const shouldMigrate = await needsMigration()
 
         if (shouldMigrate) {
@@ -86,9 +85,11 @@ function App() {
           await migrateFromLocalStorage()
         }
 
-        // 初始化 stores
-        await useFavoriteStore.getState().initialize()
-        await useSettingsStore.getState().initialize()
+        // 并行初始化 stores（两次 IPC 同时进行）
+        await Promise.all([
+          useFavoriteStore.getState().initialize(),
+          useSettingsStore.getState().initialize(),
+        ])
 
         setIsInitialized(true)
         console.log('[App] 初始化完成')
@@ -101,18 +102,7 @@ function App() {
     initializeApp()
   }, [])
 
-  // 启动 sessions 目录监听服务
-  useEffect(() => {
-    invoke('start_sessions_watcher').catch((e) => {
-      console.error('启动 sessions 监听服务失败:', e)
-    })
-
-    return () => {
-      invoke('stop_sessions_watcher').catch((e) => {
-        console.error('停止 sessions 监听服务失败:', e)
-      })
-    }
-  }, [])
+  // sessions 目录监听服务已在后端 setup() 中启动，无需前端重复调用
 
   // 等待初始化完成
   if (!isInitialized) {

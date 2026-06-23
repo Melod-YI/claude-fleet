@@ -29,6 +29,15 @@ export const worktreesApi = {
     return await invoke("create_worktree_cmd", { repoPath, name, branch, baseRef })
   },
 
+  async deleteWorktree(
+    path: string,
+    repoPath: string,
+    branch: string | null,
+    deleteBranch: boolean
+  ): Promise<void> {
+    return await invoke("delete_worktree_cmd", { path, repoPath, branch, deleteBranch })
+  },
+
   // Repo info
   async getRepoInfo(repoPath: string): Promise<RepoInfo> {
     return await invoke("get_repo_info_cmd", { repoPath })

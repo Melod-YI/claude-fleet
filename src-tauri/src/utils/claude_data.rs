@@ -551,33 +551,56 @@ fn is_process_running(pid: u32) -> bool {
     }
 }
 
-/// 检查 PID 是否为 claude 进程
+/// 检查 PID 是否为 claude 进程（使用 Win32 API，避免 spawn 外部进程）
 #[cfg(target_os = "windows")]
 pub fn is_claude_process_running(pid: u32) -> bool {
     debug!("[is_claude_process_running] 检查 PID {} 是否为 claude 进程", pid);
 
-    let output = crate::utils::process::command("tasklist")
-        .args(["/FI", &format!("PID eq {}", pid), "/NH"])
-        .output();
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    use windows::core::PWSTR;
 
-    if let Ok(output) = output {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let pid_exists = stdout.contains(&pid.to_string());
-        let is_claude = stdout.to_lowercase().contains("claude");
-        debug!("[is_claude_process_running] tasklist 输出: {}", stdout.trim());
-        debug!("[is_claude_process_running] PID {} 存在: {}, 进程名包含 claude: {}", pid, pid_exists, is_claude);
-
-        let result = pid_exists && is_claude;
-        if result {
-            info!("[is_claude_process_running] PID {} 确认是 claude 进程", pid);
-        } else {
-            warn!("[is_claude_process_running] PID {} 不是 claude 进程或进程已退出", pid);
+    let handle = match unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) } {
+        Ok(h) => h,
+        Err(_) => {
+            debug!("[is_claude_process_running] PID {} 进程不存在或无权限访问", pid);
+            return false;
         }
-        result
-    } else {
-        error!("[is_claude_process_running] tasklist 执行失败");
-        false
+    };
+
+    let mut buf: [u16; 512] = [0; 512];
+    let mut size = buf.len() as u32;
+    let pwstr = PWSTR(buf.as_mut_ptr());
+    let result = unsafe { QueryFullProcessImageNameW(handle, Default::default(), pwstr, &mut size) };
+
+    // 无论结果如何都关闭句柄
+    let _ = unsafe { windows::Win32::Foundation::CloseHandle(handle) };
+
+    if result.is_err() {
+        debug!("[is_claude_process_running] QueryFullProcessImageNameW 失败，PID={}", pid);
+        return false;
     }
+
+    let image_name = String::from_utf16_lossy(&buf[..size as usize]);
+    let process_name = image_name
+        .rsplit('\\')
+        .next()
+        .unwrap_or(&image_name)
+        .to_lowercase();
+    let is_claude = process_name.contains("claude");
+
+    debug!(
+        "[is_claude_process_running] PID={} 进程名: {}, 包含 claude: {}",
+        pid, image_name, is_claude
+    );
+
+    if is_claude {
+        info!("[is_claude_process_running] PID {} 确认是 claude 进程", pid);
+    } else {
+        warn!("[is_claude_process_running] PID {} 不是 claude 进程或进程已退出", pid);
+    }
+    is_claude
 }
 
 #[cfg(not(target_os = "windows"))]

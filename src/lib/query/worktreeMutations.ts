@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { worktreesApi } from "@/lib/api/worktrees"
-import type { TrackedRepo } from "@/types"
+import type { TrackedRepo, WorktreeListItem } from "@/types"
 
 /** Tauri invoke 可能抛出字符串而非 Error 对象，需要安全提取消息 */
 function getErrorMessage(error: unknown): string {
@@ -79,6 +79,38 @@ export const useCreateWorktreeMutation = () => {
     },
     onError: (error: unknown) => {
       toast.error(`创建 Worktree 失败: ${getErrorMessage(error)}`)
+    },
+  })
+}
+
+export const useDeleteWorktreeMutation = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      path,
+      repoPath,
+      branch,
+      deleteBranch,
+    }: {
+      path: string
+      repoPath: string
+      branch: string | null
+      deleteBranch: boolean
+    }) => {
+      await worktreesApi.deleteWorktree(path, repoPath, branch, deleteBranch)
+      return { path, repoPath }
+    },
+    onSuccess: ({ path, repoPath }) => {
+      // 乐观更新：立即从缓存中移除，避免 invalidateQueries 的异步延迟
+      queryClient.setQueryData<WorktreeListItem[]>(
+        ["worktrees", repoPath],
+        (current) => (current ?? []).filter((w) => w.path !== path)
+      )
+      toast.success("Worktree 已删除")
+    },
+    onError: (error: unknown) => {
+      toast.error(`删除 Worktree 失败: ${getErrorMessage(error)}`)
     },
   })
 }

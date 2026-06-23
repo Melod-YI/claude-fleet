@@ -9,13 +9,14 @@ use tracing::info;
 use crate::db::schema::get_connection;
 use crate::db::worktrees::{
     WorktreeInfo, insert_worktree, list_worktrees_by_repo, get_worktree_by_path,
+    delete_worktree_by_path,
 };
 use crate::utils::git::{
     RemoteInfo, get_repo_name, get_remotes, get_local_branches,
-    get_remote_branches, get_default_branch,
+    get_remote_branches, get_default_branch, get_ahead_behind, get_dirty_file_count,
 };
 use crate::utils::git::worktree::{
-    CreateWorktreeOptions, create_worktree, list_worktrees_live,
+    CreateWorktreeOptions, create_worktree, delete_worktree, list_worktrees_live,
 };
 
 /// Worktree 状态标记
@@ -41,6 +42,9 @@ pub struct WorktreeListItem {
     pub branch: Option<String>,
     pub is_main: bool,
     pub status: WorktreeStatus,
+    pub ahead: Option<u32>,
+    pub behind: Option<u32>,
+    pub uncommitted_changes: Option<u32>,
 }
 
 /// 仓库信息（供前端构建分支选择器）
@@ -132,6 +136,26 @@ pub fn list_worktrees_cmd(
             continue;
         }
 
+        // 获取 git 状态（仅 Active worktree，best-effort）
+        let mut ahead: Option<u32> = None;
+        let mut behind: Option<u32> = None;
+        let mut uncommitted_changes: Option<u32> = None;
+
+        let wt_path = Path::new(&git_entry.path);
+        if let Some(branch_name) = &git_entry.branch {
+            // ahead/behind：需要 branch + base_ref
+            if let Some(db_info) = db_map.get(&git_entry.path) {
+                if let Ok((a, b)) = get_ahead_behind(wt_path, branch_name, &db_info.base_ref) {
+                    ahead = Some(a);
+                    behind = Some(b);
+                }
+            }
+            // dirty files
+            if let Ok(count) = get_dirty_file_count(wt_path) {
+                uncommitted_changes = Some(count);
+            }
+        }
+
         if let Some(db_info) = db_map.get(&git_entry.path) {
             // Active: 数据库有 + git 有
             results.push(WorktreeListItem {
@@ -145,6 +169,9 @@ pub fn list_worktrees_cmd(
                 branch: git_entry.branch.clone(),
                 is_main: false,
                 status: WorktreeStatus::Active,
+                ahead,
+                behind,
+                uncommitted_changes,
             });
         } else {
             // Unmanaged: git 有但数据库没有
@@ -160,6 +187,9 @@ pub fn list_worktrees_cmd(
                 branch: git_entry.branch.clone(),
                 is_main: false,
                 status: WorktreeStatus::Unmanaged,
+                ahead,
+                behind,
+                uncommitted_changes,
             });
         }
     }
@@ -178,6 +208,9 @@ pub fn list_worktrees_cmd(
                 branch: Some(db_info.branch.clone()),
                 is_main: false,
                 status: WorktreeStatus::Missing,
+                ahead: None,
+                behind: None,
+                uncommitted_changes: None,
             });
         }
     }
@@ -235,6 +268,34 @@ pub fn get_repo_info_cmd(
     Ok(info)
 }
 
+/// 删除 worktree（git 清理 + 数据库删除）
+#[tauri::command]
+pub fn delete_worktree_cmd(
+    path: String,
+    repo_path: String,
+    branch: Option<String>,
+    delete_branch: bool,
+) -> Result<(), String> {
+    info!("[delete_worktree_cmd] 开始: path={}, repo={}, branch={:?}, delete_branch={}",
+          path, repo_path, branch, delete_branch);
+
+    // 1. Git 清理（worktree remove + 可选 branch delete）
+    delete_worktree(
+        Path::new(&repo_path),
+        &path,
+        branch.as_deref(),
+        delete_branch,
+    )?;
+
+    // 2. 删除数据库记录
+    let conn = get_connection().map_err(|e| format!("数据库连接失败: {}", e))?;
+    delete_worktree_by_path(&conn, &path)
+        .map_err(|e| format!("数据库删除失败: {}", e))?;
+
+    info!("[delete_worktree_cmd] 完成: {}", path);
+    Ok(())
+}
+
 /// 从路径中提取目录名作为 worktree 名称
 fn extract_name_from_path(path: &str) -> String {
     Path::new(path)
@@ -285,12 +346,16 @@ mod tests {
             branch: Some("feature".to_string()),
             is_main: false,
             status: WorktreeStatus::Active,
+            ahead: Some(3),
+            behind: Some(1),
+            uncommitted_changes: Some(2),
         };
         let json = serde_json::to_string(&item).unwrap();
         assert!(json.contains("repoName"));
         assert!(json.contains("baseRef"));
         assert!(json.contains("createdAt"));
         assert!(json.contains("isMain"));
+        assert!(json.contains("uncommittedChanges"));
         assert!(!json.contains("repo_name"));
 
         let parsed: WorktreeListItem = serde_json::from_str(&json).unwrap();
