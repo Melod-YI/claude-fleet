@@ -20,6 +20,7 @@ use crate::utils::window_manager::{
     invalidate_window_cache,
 };
 use crate::utils::claude_session::{extract_away_summary, extract_last_user_input};
+use crate::utils::git::info::GitInfo;
 
 /// Session 运行状态（对应 Claude JSON 文件中的三种状态）
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -47,6 +48,8 @@ pub struct RunningSession {
     pub last_user_input: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_name: Option<String>,  // Claude Fleet 自定义名称
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_info: Option<GitInfo>,  // 工作目录 git 概要信息
 }
 
 /// 全局运行中 Session 状态（PID 作为 key，因为 sessionId 会因 resume 变化）
@@ -192,6 +195,7 @@ pub fn add_running_session_from_file(content: &SessionFileContent) -> Result<(),
         away_summary_at: None,
         last_user_input: None,
         custom_name: None,
+        git_info: None,
     };
 
     info!("[add_running_session_from_file] 创建 RunningSession: id={}, pid={}, status={}, cwd={}",
