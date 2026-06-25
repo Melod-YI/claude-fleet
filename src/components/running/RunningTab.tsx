@@ -80,52 +80,50 @@ export function RunningTab() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* 搜索栏 */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b bg-gray-50">
-        <Input
-          placeholder="搜索名称、路径..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="flex-1"
-        />
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={() => setNewSessionOpen(true)}
-          title="新建 Session"
-        >
-          <Plus className="w-4 h-4" />
-        </Button>
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={handleRefresh}
-          disabled={refreshing}
-          title="刷新"
-        >
-          <RefreshCw className={cn("w-4 h-4", refreshing && "animate-spin")} />
-        </Button>
-      </div>
-
-      {/* 状态统计 */}
-      <div className="flex items-center justify-between gap-4 px-4 py-2 border-b text-sm">
-        <div className="flex items-center gap-4">
+      {/* 工具栏：数量统计 + 精简开关 + 搜索 + 添加 + 刷新 */}
+      <div className="flex items-center gap-4 px-4 py-2 border-b bg-gray-50">
+        <div className="flex items-center gap-3 whitespace-nowrap text-sm">
           <span className="text-gray-600">
-            共 {filteredSessions.length} 个运行中的 session
+            {filteredSessions.length} 运行中
           </span>
           {waitingCount > 0 && (
             <span className="text-amber-600 font-medium">
-              {waitingCount} 个等待输入
+              {waitingCount} 等待输入
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <span className="text-xs text-gray-500">精简</span>
           <Switch
             checked={!compact}
             onCheckedChange={(checked) => setCompact(!checked)}
           />
           <span className="text-xs text-gray-500">详细</span>
+        </div>
+        <div className="ml-auto flex items-center gap-3">
+          <Input
+            placeholder="搜索名称、路径..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-56"
+          />
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setNewSessionOpen(true)}
+            title="新建 Session"
+          >
+            <Plus className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            title="刷新"
+          >
+            <RefreshCw className={cn("w-4 h-4", refreshing && "animate-spin")} />
+          </Button>
         </div>
       </div>
 

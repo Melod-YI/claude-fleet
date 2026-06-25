@@ -14,7 +14,7 @@ interface TabHeaderProps {
 
 export function TabHeader({ tabs, activeTab, onTabChange }: TabHeaderProps) {
   return (
-    <div className="flex items-center gap-1 border-b bg-background px-4 py-2">
+    <div className="flex items-center gap-1">
       {tabs.map((tab) => (
         <button
           key={tab.id}
