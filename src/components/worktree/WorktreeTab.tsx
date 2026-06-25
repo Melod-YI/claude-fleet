@@ -4,6 +4,7 @@ import { worktreesApi } from "@/lib/api/worktrees"
 import { open as openDialog } from "@tauri-apps/plugin-dialog"
 import { RefreshCw } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/dialogs"
 import { DeleteWorktreeDialog } from "./DeleteWorktreeDialog"
@@ -90,7 +91,8 @@ export function WorktreeTab() {
       setDeleteConfirm({ open: true, worktree, safety })
     } catch (e) {
       console.error("删除预检失败:", e)
-      setDeleteConfirm({ open: true, worktree, safety: null })
+      const msg = e instanceof Error ? e.message : String(e)
+      toast.error(`删除预检失败: ${msg}`)
     }
   }, [trackedRepos])
 
