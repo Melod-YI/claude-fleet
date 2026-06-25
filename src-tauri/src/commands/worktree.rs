@@ -58,6 +58,37 @@ pub struct RepoInfo {
     pub default_branch: String,
 }
 
+/// 删除 worktree 前的安全预检结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeletionSafety {
+    pub is_managed: bool,
+    pub will_delete_branch: bool,
+    pub uncommitted_changes: u32,
+    pub unmerged_commits: u32,
+    pub blocked: bool,
+    pub reasons: Vec<String>,
+}
+
+/// 纯逻辑：根据各项检查值计算 blocked 与 reasons。
+/// - 未提交变更 > 0 → 阻断（无论是否托管）
+/// - will_delete_branch 且 unmerged > 0 → 阻断
+pub fn compute_deletion_safety_fields(
+    uncommitted: u32,
+    unmerged: u32,
+    will_delete_branch: bool,
+) -> (bool, Vec<String>) {
+    let mut reasons = Vec::new();
+    if uncommitted > 0 {
+        reasons.push(format!("{} 个未提交变更", uncommitted));
+    }
+    if will_delete_branch && unmerged > 0 {
+        reasons.push(format!("{} 个未合并到主干的提交", unmerged));
+    }
+    let blocked = !reasons.is_empty();
+    (blocked, reasons)
+}
+
 /// 创建 worktree
 #[tauri::command]
 pub fn create_worktree_cmd(
@@ -382,5 +413,58 @@ mod tests {
         let parsed: RepoInfo = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.name, "myrepo");
         assert_eq!(parsed.remotes.len(), 1);
+    }
+
+    #[test]
+    fn deletion_safety_camel_case_roundtrip() {
+        let s = DeletionSafety {
+            is_managed: true,
+            will_delete_branch: true,
+            uncommitted_changes: 2,
+            unmerged_commits: 3,
+            blocked: true,
+            reasons: vec!["未提交".to_string()],
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains("isManaged"));
+        assert!(json.contains("willDeleteBranch"));
+        assert!(json.contains("uncommittedChanges"));
+        assert!(json.contains("unmergedCommits"));
+        assert!(!json.contains("uncommitted_changes"));
+    }
+
+    #[test]
+    fn compute_safety_not_blocked_when_clean() {
+        let (blocked, reasons) = compute_deletion_safety_fields(0, 0, true);
+        assert!(!blocked);
+        assert!(reasons.is_empty());
+    }
+
+    #[test]
+    fn compute_safety_blocked_by_uncommitted() {
+        let (blocked, reasons) = compute_deletion_safety_fields(5, 0, true);
+        assert!(blocked);
+        assert!(reasons.iter().any(|r| r.contains("未提交") && r.contains("5")));
+    }
+
+    #[test]
+    fn compute_safety_blocked_by_unmerged_when_will_delete_branch() {
+        let (blocked, reasons) = compute_deletion_safety_fields(0, 2, true);
+        assert!(blocked);
+        assert!(reasons.iter().any(|r| r.contains("未合并") && r.contains("2")));
+    }
+
+    #[test]
+    fn compute_safety_ignores_unmerged_when_not_deleting_branch() {
+        // 未托管：will_delete_branch=false，unmerged 不应阻断
+        let (blocked, _reasons) = compute_deletion_safety_fields(0, 2, false);
+        assert!(!blocked);
+    }
+
+    #[test]
+    fn compute_safety_blocked_by_both_lists_both_reasons() {
+        let (blocked, reasons) = compute_deletion_safety_fields(1, 1, true);
+        assert!(blocked);
+        assert_eq!(reasons.len(), 2);
     }
 }
