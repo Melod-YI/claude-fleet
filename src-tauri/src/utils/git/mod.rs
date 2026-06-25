@@ -2,6 +2,7 @@
 // 通用 git 命令封装层
 
 pub mod worktree;
+pub mod info;
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
