@@ -1,10 +1,12 @@
 import { useState, useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core"
+import { worktreesApi } from "@/lib/api/worktrees"
 import { open as openDialog } from "@tauri-apps/plugin-dialog"
 import { RefreshCw } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/dialogs"
+import { DeleteWorktreeDialog } from "./DeleteWorktreeDialog"
 import { RepoTree } from "./RepoTree"
 import { WorktreeDetail } from "./WorktreeDetail"
 import { CreateWorktreeDialog } from "./CreateWorktreeDialog"
@@ -15,7 +17,7 @@ import {
   useDeleteWorktreeMutation,
 } from "@/lib/query/worktreeMutations"
 import { startNewSession } from "@/services/sessionLaunchService"
-import type { WorktreeListItem } from "@/types"
+import type { WorktreeListItem, DeletionSafety } from "@/types"
 
 export function WorktreeTab() {
   const queryClient = useQueryClient()
@@ -31,8 +33,8 @@ export function WorktreeTab() {
   const [deleteConfirm, setDeleteConfirm] = useState<{
     open: boolean
     worktree: WorktreeListItem | null
-    deleteBranch: boolean
-  }>({ open: false, worktree: null, deleteBranch: true })
+    safety: DeletionSafety | null
+  }>({ open: false, worktree: null, safety: null })
 
   const { data: trackedRepos = [] } = useTrackedReposQuery()
 
@@ -74,16 +76,30 @@ export function WorktreeTab() {
     setRemoveRepoConfirm({ open: false, repoId: 0, repoName: "" })
   }, [removeRepoMutation, removeRepoConfirm, selectedWorktree, trackedRepos])
 
-  const handleDeleteWorktree = useCallback((worktree: WorktreeListItem) => {
-    setDeleteConfirm({ open: true, worktree, deleteBranch: true })
-  }, [])
+  const handleDeleteWorktree = useCallback(async (worktree: WorktreeListItem) => {
+    const repo = trackedRepos.find(
+      (r) => wtPathStartsWith(worktree.path, r.path)
+    )
+    const repoPath = repo?.path ?? worktree.path
+    try {
+      const safety = await worktreesApi.preflightDeleteWorktree(
+        worktree.path,
+        repoPath,
+        worktree.branch ?? null
+      )
+      setDeleteConfirm({ open: true, worktree, safety })
+    } catch (e) {
+      console.error("删除预检失败:", e)
+      setDeleteConfirm({ open: true, worktree, safety: null })
+    }
+  }, [trackedRepos])
 
   const handleConfirmDelete = useCallback(() => {
     if (!deleteConfirm.worktree) return
     const wt = deleteConfirm.worktree
-    // 从 trackedRepos 找到对应的 repoPath
-    const repo = trackedRepos.find((r) => wt.path.startsWith(r.path + "/") || wt.path.startsWith(r.path + "\\"))
+    const repo = trackedRepos.find((r) => wtPathStartsWith(wt.path, r.path))
     const repoPath = repo?.path ?? wt.path
+    const deleteBranch = deleteConfirm.safety?.willDeleteBranch ?? false
 
     // 立即清空详情面板（不等 mutation 返回）
     if (selectedWorktree?.path === wt.path) {
@@ -94,9 +110,9 @@ export function WorktreeTab() {
       path: wt.path,
       repoPath,
       branch: wt.branch ?? null,
-      deleteBranch: deleteConfirm.deleteBranch,
+      deleteBranch,
     })
-    setDeleteConfirm({ open: false, worktree: null, deleteBranch: true })
+    setDeleteConfirm({ open: false, worktree: null, safety: null })
   }, [deleteWorktreeMutation, deleteConfirm, selectedWorktree, trackedRepos])
 
   const handleAddWorktree = useCallback((repoPath: string) => {
@@ -204,15 +220,22 @@ export function WorktreeTab() {
       />
 
       {/* Delete worktree confirmation */}
-      <ConfirmDialog
+      <DeleteWorktreeDialog
         open={deleteConfirm.open}
-        onClose={() => setDeleteConfirm({ open: false, worktree: null, deleteBranch: true })}
+        worktreeName={deleteConfirm.worktree?.name ?? ""}
+        branch={deleteConfirm.worktree?.branch ?? null}
+        safety={deleteConfirm.safety}
+        onClose={() => setDeleteConfirm({ open: false, worktree: null, safety: null })}
         onConfirm={handleConfirmDelete}
-        title="删除 Worktree"
-        description={`将删除 worktree「${deleteConfirm.worktree?.name ?? ""}」的目录和分支，此操作不可撤销。`}
-        confirmText="删除"
-        variant="destructive"
       />
     </div>
+  )
+}
+
+/** 兼容正反斜杠的路径前缀匹配 */
+function wtPathStartsWith(childPath: string, parentPath: string): boolean {
+  return (
+    childPath.startsWith(parentPath + "/") ||
+    childPath.startsWith(parentPath + "\\")
   )
 }
