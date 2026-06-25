@@ -236,6 +236,34 @@ pub fn get_dirty_file_count(repo_path: &Path) -> Result<u32, String> {
     Ok(count)
 }
 
+/// 解析 `git rev-list --count <range>` 输出为 u32。
+/// 空或非数字返回 0。
+pub fn parse_rev_list_count(output: &str) -> u32 {
+    output.trim().parse::<u32>().unwrap_or(0)
+}
+
+/// 判定 branch 相对 main_branch 的合并状态。
+/// 返回 (is_merged, unmerged_commits)。
+/// unmerged_commits = `git rev-list --count main..branch`（branch 有而 main 没有的提交数）。
+/// best-effort：git 失败时返回 (false, 0)，不阻断删除流程。
+pub fn is_branch_merged(
+    repo_path: &Path,
+    branch: &str,
+    main_branch: &str,
+) -> Result<(bool, u32), String> {
+    let range = format!("{}..{}", main_branch, branch);
+    match execute_git(repo_path, &["rev-list", "--count", &range]) {
+        Ok(output) => {
+            let n = parse_rev_list_count(&output);
+            Ok((n == 0, n))
+        }
+        Err(e) => {
+            warn!("[is_branch_merged] rev-list 失败，按不阻断处理: {}", e);
+            Ok((false, 0))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,5 +304,25 @@ mod tests {
     fn extract_name_returns_none_for_empty() {
         assert_eq!(extract_repo_name_from_url(""), None);
         assert_eq!(extract_repo_name_from_url(".git"), None);
+    }
+
+    #[test]
+    fn parse_rev_list_count_parses_number() {
+        assert_eq!(parse_rev_list_count("3"), 3);
+    }
+
+    #[test]
+    fn parse_rev_list_count_trims_whitespace() {
+        assert_eq!(parse_rev_list_count("  12 \n"), 12);
+    }
+
+    #[test]
+    fn parse_rev_list_count_zero_when_empty() {
+        assert_eq!(parse_rev_list_count(""), 0);
+    }
+
+    #[test]
+    fn parse_rev_list_count_zero_when_non_numeric() {
+        assert_eq!(parse_rev_list_count("abc"), 0);
     }
 }
