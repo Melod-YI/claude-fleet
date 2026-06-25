@@ -8,6 +8,8 @@ use crate::utils::running_sessions::{
     start_polling,
     stop_polling,
     RunningSession,
+    RUNNING_SESSIONS,
+    refresh_git_info_background,
 };
 use crate::db::sessions_meta::get_session_names;
 use tracing::{info, error};
@@ -60,6 +62,22 @@ pub fn list_running() -> Result<Vec<RunningSession>, String> {
             Ok(sessions)
         }
     }
+}
+
+/// 手动刷新所有运行中 session 的 git 信息（后台非阻塞，force 采集）。
+#[tauri::command]
+pub fn refresh_git_info_all(app_handle: tauri::AppHandle) -> Result<(), String> {
+    info!("[refresh_git_info_all] 开始：对所有运行中 session 触发 git 信息采集");
+    let pids: Vec<u32> = {
+        let sessions = RUNNING_SESSIONS.lock().unwrap();
+        sessions.keys().cloned().collect()
+    };
+    let count = pids.len();
+    for pid in pids {
+        refresh_git_info_background(pid, app_handle.clone(), true);
+    }
+    info!("[refresh_git_info_all] 已派发 {} 个 session 的采集任务", count);
+    Ok(())
 }
 
 /// 启动定时轮询

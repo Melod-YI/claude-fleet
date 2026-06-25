@@ -15,6 +15,7 @@ use commands::session::{
     start_hooks,
     stop_hooks,
     delete_session_cmd,
+    refresh_git_info_all,
 };
 use commands::session_commands::{
     list_sessions_optimized,
@@ -134,6 +135,7 @@ pub fn run() {
             start_hooks,
             stop_hooks,
             delete_session_cmd,
+            refresh_git_info_all,
             // Terminal commands
             jump_to_terminal,
             jump_to_terminal_by_pid,
