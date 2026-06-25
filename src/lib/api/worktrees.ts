@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core"
-import type { TrackedRepo, WorktreeListItem, WorktreeInfo, RepoInfo } from "@/types"
+import type { TrackedRepo, WorktreeListItem, WorktreeInfo, RepoInfo, DeletionSafety } from "@/types"
 
 export const worktreesApi = {
   // Tracked repos
@@ -36,6 +36,18 @@ export const worktreesApi = {
     deleteBranch: boolean
   ): Promise<void> {
     return await invoke("delete_worktree_cmd", { path, repoPath, branch, deleteBranch })
+  },
+
+  async preflightDeleteWorktree(
+    path: string,
+    repoPath: string,
+    branch: string | null
+  ): Promise<DeletionSafety> {
+    return await invoke("preflight_delete_worktree_cmd", { path, repoPath, branch })
+  },
+
+  async countWorktrees(repoPath: string): Promise<number> {
+    return await invoke("count_worktrees_cmd", { repoPath })
   },
 
   // Repo info
