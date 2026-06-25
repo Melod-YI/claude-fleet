@@ -20,6 +20,16 @@ export const useWorktreesQuery = (repoPath: string | undefined) => {
   })
 }
 
+export const useWorktreeCountQuery = (repoPath: string | undefined) => {
+  return useQuery<number>({
+    queryKey: ["worktrees", "count", repoPath],
+    queryFn: () => worktreesApi.countWorktrees(repoPath!),
+    enabled: Boolean(repoPath),
+    staleTime: 30 * 1000,
+    refetchOnWindowFocus: false,
+  })
+}
+
 export const useRepoInfoQuery = (repoPath: string | undefined) => {
   return useQuery<RepoInfo>({
     queryKey: ["repoInfo", repoPath],
