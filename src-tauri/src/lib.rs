@@ -70,6 +70,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     if let Err(e) = handle.emit("running_sessions_changed", &sessions) {
                         error!("[setup] 发送 running_sessions_changed 事件失败: {}", e);
                     }
+                    // 首次打开：对所有已存在的 session 后台采集 git 信息（无视状态）
+                    for s in &sessions {
+                        utils::running_sessions::refresh_git_info_background(s.pid, handle.clone(), false);
+                    }
                 }
                 Err(e) => {
                     error!("[setup] 后台初始化运行中 session 列表失败: {}", e);
