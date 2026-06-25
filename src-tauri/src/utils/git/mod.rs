@@ -178,15 +178,38 @@ pub fn branch_exists(repo_path: &Path, branch: &str) -> bool {
 }
 
 /// 是否处于 git worktree 中（而非主仓库）。
-/// 通过比较 `--git-common-dir`（主仓库 .git）与 `--git-dir`（当前工作区 .git）判断。
+/// 通过比较 `--git-dir`（当前工作区 git 目录）与 `--git-common-dir`（主仓库 .git）判断。
 /// 二者不同说明当前是 worktree。
+///
+/// 注意：git 对子目录可能返回**相对路径**（相对 repo_path），而对仓库根返回绝对路径，
+/// 直接比较字符串会因相对/绝对不一致而误判。故先将两者都解析为绝对规范路径再比较。
 pub fn is_worktree(repo_path: &Path) -> bool {
-    let common = execute_git(repo_path, &["rev-parse", "--git-common-dir"]);
-    let git_dir = execute_git(repo_path, &["rev-parse", "--git-dir"]);
-    match (common, git_dir) {
-        (Ok(c), Ok(g)) => normalize_path(&c) != normalize_path(&g),
-        _ => false,
-    }
+    let git_dir = match execute_git(repo_path, &["rev-parse", "--git-dir"]) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let common_dir = match execute_git(repo_path, &["rev-parse", "--git-common-dir"]) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let git_dir_abs = resolve_absolute(repo_path, &git_dir);
+    let common_dir_abs = resolve_absolute(repo_path, &common_dir);
+    git_dir_abs != common_dir_abs
+}
+
+/// 将 git 返回的路径（可能是相对 repo_path 的相对路径）解析为绝对规范路径。
+/// 相对路径基于 `base` 拼接；`canonicalize` 消解 `..` 与符号链接。
+/// `canonicalize` 失败时回退到拼接 + 分隔符归一化的结果。
+fn resolve_absolute(base: &Path, p: &str) -> PathBuf {
+    let p = p.trim();
+    let pb = Path::new(p);
+    let abs = if pb.is_absolute() {
+        PathBuf::from(p)
+    } else {
+        base.join(pb)
+    };
+    abs.canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(normalize_path(&abs.to_string_lossy())))
 }
 
 /// 获取当前分支名与 detached 状态。
@@ -393,6 +416,16 @@ mod tests {
     fn is_worktree_false_for_main_repo() {
         let repo = test_helpers::init_repo("iwt-main");
         assert!(!is_worktree(&repo));
+    }
+
+    #[test]
+    fn is_worktree_false_for_subdir_of_main_repo() {
+        // 主干仓库的子目录：git-dir 返回绝对路径、common-dir 返回相对路径，
+        // 必须消解相对性后再比较，否则会误判为 worktree。
+        let repo = test_helpers::init_repo("iwt-subdir");
+        let subdir = repo.join("nested").join("deep");
+        std::fs::create_dir_all(&subdir).unwrap();
+        assert!(!is_worktree(&subdir), "主干仓库的子目录不应被识别为 worktree");
     }
 
     #[test]
