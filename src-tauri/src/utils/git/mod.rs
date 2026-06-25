@@ -176,15 +176,25 @@ pub fn branch_exists(repo_path: &Path, branch: &str) -> bool {
     execute_git(repo_path, &["show-ref", "--verify", "--quiet", &ref_name]).is_ok()
 }
 
+/// 是否处于 git worktree 中（而非主仓库）。
+/// 通过比较 `--git-common-dir`（主仓库 .git）与 `--git-dir`（当前工作区 .git）判断。
+/// 二者不同说明当前是 worktree。
+pub fn is_worktree(repo_path: &Path) -> bool {
+    let common = execute_git(repo_path, &["rev-parse", "--git-common-dir"]);
+    let git_dir = execute_git(repo_path, &["rev-parse", "--git-dir"]);
+    match (common, git_dir) {
+        (Ok(c), Ok(g)) => normalize_path(&c) != normalize_path(&g),
+        _ => false,
+    }
+}
+
 /// 获取仓库的父目录。
-/// 对于主仓库：返回 repo_path 的父目录。
+/// 对于主仓库：返回 repo_path 的父目录（基于 --show-toplevel）。
 /// 对于 worktree：通过 git-common-dir 定位主仓库，再取其父目录。
 pub fn get_repo_parent(repo_path: &Path) -> Result<PathBuf, String> {
-    let common_dir = normalize_path(&execute_git(repo_path, &["rev-parse", "--git-common-dir"])?);
-    let git_dir = normalize_path(&execute_git(repo_path, &["rev-parse", "--git-dir"])?);
-
-    let repo_root: PathBuf = if common_dir != git_dir {
+    let repo_root: PathBuf = if is_worktree(repo_path) {
         // 在 worktree 中：common_dir 指向主仓库的 .git
+        let common_dir = normalize_path(&execute_git(repo_path, &["rev-parse", "--git-common-dir"])?);
         let common_path = PathBuf::from(&common_dir);
         if common_path.file_name().is_some_and(|n| n == ".git") {
             common_path
@@ -236,6 +246,63 @@ pub fn get_dirty_file_count(repo_path: &Path) -> Result<u32, String> {
     Ok(count)
 }
 
+/// 测试辅助：创建临时 git 仓库。仅供 `#[cfg(test)]` 使用。
+#[cfg(test)]
+pub(crate) mod test_helpers {
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    /// 创建唯一临时目录（不初始化 git）
+    pub fn unique_temp_dir(prefix: &str) -> PathBuf {
+        let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let pid = std::process::id();
+        let dir = std::env::temp_dir()
+            .join(format!("claude-fleet-test-{}-{}-{}", prefix, pid, id));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// 返回唯一临时路径（不创建目录）。用于需由 git 自行创建的路径（如 `git worktree add`）。
+    pub fn unique_temp_path(prefix: &str) -> PathBuf {
+        let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let pid = std::process::id();
+        std::env::temp_dir()
+            .join(format!("claude-fleet-test-{}-{}-{}", prefix, pid, id))
+    }
+
+    /// 在 path 执行 git 命令（用 process::command 避免 Windows 弹窗）
+    fn git(path: &Path, args: &[&str]) {
+        let status = crate::utils::process::command("git")
+            .arg("-C")
+            .arg(path)
+            .args(args)
+            .status()
+            .expect("git 命令执行失败");
+        assert!(status.success(), "git {:?} 在 {} 失败", args, path.display());
+    }
+
+    /// 初始化一个 git 仓库（含 config 与初始提交），返回仓库路径
+    pub fn init_repo(prefix: &str) -> PathBuf {
+        let path = unique_temp_dir(prefix);
+        git(&path, &["init"]);
+        git(&path, &["config", "user.email", "test@example.com"]);
+        git(&path, &["config", "user.name", "Test"]);
+        std::fs::write(path.join("README.md"), "init\n").unwrap();
+        git(&path, &["add", "."]);
+        git(&path, &["commit", "-m", "initial commit"]);
+        path
+    }
+
+    /// 在仓库内做一次提交（写文件 + add + commit）
+    pub fn commit(path: &Path, name: &str, msg: &str) {
+        std::fs::write(path.join(name), format!("{}\n", msg)).unwrap();
+        git(path, &["add", "."]);
+        git(path, &["commit", "-m", msg]);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,5 +343,26 @@ mod tests {
     fn extract_name_returns_none_for_empty() {
         assert_eq!(extract_repo_name_from_url(""), None);
         assert_eq!(extract_repo_name_from_url(".git"), None);
+    }
+
+    #[test]
+    fn is_worktree_false_for_main_repo() {
+        let repo = test_helpers::init_repo("iwt-main");
+        assert!(!is_worktree(&repo));
+    }
+
+    #[test]
+    fn is_worktree_true_for_worktree() {
+        let main = test_helpers::init_repo("iwt-wt");
+        let wt_path = test_helpers::unique_temp_path("iwt-wt-linked");
+        // 在主仓库中创建一个 worktree
+        let status = crate::utils::process::command("git")
+            .arg("-C")
+            .arg(&main)
+            .args(["worktree", "add", &wt_path.to_string_lossy(), "-b", "feature-x"])
+            .status()
+            .expect("git worktree add 失败");
+        assert!(status.success(), "git worktree add 失败");
+        assert!(is_worktree(&wt_path));
     }
 }
