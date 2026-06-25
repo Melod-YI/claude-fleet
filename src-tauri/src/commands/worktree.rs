@@ -401,6 +401,42 @@ pub fn preflight_delete_worktree_cmd(
     })
 }
 
+/// 纯逻辑：统计 live worktree 数（排除主仓库）
+pub fn count_live_worktrees(entries: &[crate::utils::git::worktree::GitWorktreeEntry]) -> u32 {
+    entries.iter().filter(|e| !e.is_main).count() as u32
+}
+
+/// 轻量计数：1 次 git porcelain + 1 次 DB 查询，供仓库折叠徽标使用
+#[tauri::command]
+pub fn count_worktrees_cmd(repo_path: String) -> Result<u32, String> {
+    info!("[count_worktrees_cmd] 开始: repo={}", repo_path);
+
+    let path = Path::new(&repo_path);
+
+    // 1. live 计数
+    let live = match list_worktrees_live(path) {
+        Ok(entries) => count_live_worktrees(&entries),
+        Err(e) => {
+            warn!("[count_worktrees_cmd] 获取 live worktree 失败，按 0 处理: {}", e);
+            0
+        }
+    };
+
+    // 2. missing 计数（DB 有但 live 没有）
+    let conn = get_connection().map_err(|e| format!("数据库连接失败: {}", e))?;
+    let db_items = list_worktrees_by_repo(&conn, &repo_path)
+        .map_err(|e| format!("数据库查询失败: {}", e))?;
+    let live_paths: std::collections::HashSet<String> = match list_worktrees_live(path) {
+        Ok(entries) => entries.iter().map(|e| e.path.clone()).collect(),
+        Err(_) => std::collections::HashSet::new(),
+    };
+    let missing = db_items.iter().filter(|d| !live_paths.contains(&d.path)).count() as u32;
+
+    let total = live + missing;
+    info!("[count_worktrees_cmd] 完成: live={}, missing={}, total={}", live, missing, total);
+    Ok(total)
+}
+
 /// 从路径中提取目录名作为 worktree 名称
 fn extract_name_from_path(path: &str) -> String {
     Path::new(path)
@@ -540,5 +576,25 @@ mod tests {
         let (blocked, reasons) = compute_deletion_safety_fields(1, 1, true);
         assert!(blocked);
         assert_eq!(reasons.len(), 2);
+    }
+
+    use crate::utils::git::worktree::GitWorktreeEntry;
+
+    #[test]
+    fn count_live_excludes_main() {
+        let entries = vec![
+            GitWorktreeEntry { path: "/r".into(), head: "a".into(), branch: Some("main".into()), is_bare: false, is_main: true },
+            GitWorktreeEntry { path: "/r.w/feat".into(), head: "b".into(), branch: Some("feat".into()), is_bare: false, is_main: false },
+            GitWorktreeEntry { path: "/r.w/det".into(), head: "c".into(), branch: None, is_bare: false, is_main: false },
+        ];
+        assert_eq!(count_live_worktrees(&entries), 2);
+    }
+
+    #[test]
+    fn count_live_zero_when_only_main() {
+        let entries = vec![
+            GitWorktreeEntry { path: "/r".into(), head: "a".into(), branch: Some("main".into()), is_bare: false, is_main: true },
+        ];
+        assert_eq!(count_live_worktrees(&entries), 0);
     }
 }
