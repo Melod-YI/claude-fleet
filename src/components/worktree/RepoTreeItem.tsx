@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, Folder, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { WorktreeTreeItem } from "./WorktreeTreeItem"
-import { useWorktreesQuery } from "@/lib/query/worktreeQueries"
+import { useWorktreesQuery, useWorktreeCountQuery } from "@/lib/query/worktreeQueries"
 import type { WorktreeListItem } from "@/types"
 
 interface RepoTreeItemProps {
@@ -32,6 +32,7 @@ export function RepoTreeItem({
   const { data: worktrees = [], isLoading: worktreesLoading } = useWorktreesQuery(
     expanded ? repoPath : undefined
   )
+  const { data: count } = useWorktreeCountQuery(repoPath)
 
   return (
     <div>
@@ -54,7 +55,7 @@ export function RepoTreeItem({
         <Folder className="w-4 h-4 text-violet-500 shrink-0" />
         <span className="truncate font-medium">{repoName}</span>
         <span className="ml-auto text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-          {worktrees.length}
+          {count ?? 0}
         </span>
         {hovered && (
           <Button
