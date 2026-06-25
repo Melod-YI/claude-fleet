@@ -20,7 +20,8 @@ use crate::utils::window_manager::{
     invalidate_window_cache,
 };
 use crate::utils::claude_session::{extract_away_summary, extract_last_user_input};
-use crate::utils::git::info::GitInfo;
+use crate::utils::git::info::{gather_git_info, GitInfo};
+use std::path::Path;
 
 /// Session 运行状态（对应 Claude JSON 文件中的三种状态）
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -59,6 +60,14 @@ pub static RUNNING_SESSIONS: Lazy<Mutex<HashMap<u32, RunningSession>>> =
 /// 缓存 away_summary 结果（session_id -> (summary, timestamp, checked_at)）
 static AWAY_SUMMARY_CACHE: Lazy<Mutex<HashMap<String, (Option<String>, Option<u64>, u64)>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// git 信息后台采集的去重缓存：cwd -> 上次触发 Instant。
+/// 同一 cwd 在 GIT_REFRESH_DEDUPE_SECS 内仅触发一次（自动触发场景）。
+static GIT_REFRESH_CACHE: Lazy<Mutex<HashMap<String, Instant>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// 自动触发去重窗口（秒）。
+const GIT_REFRESH_DEDUPE_SECS: u64 = 5;
 
 /// 轮询运行状态
 static POLLING_RUNNING: AtomicBool = AtomicBool::new(false);
@@ -281,6 +290,75 @@ pub fn remove_running_session_by_pid(pid: u32) {
     } else {
         warn!("[remove_running_session_by_pid] 未找到 pid={} 的 session", pid);
     }
+}
+
+/// 后台采集并更新指定 session 的 git 信息，非阻塞。
+/// - `force = true`：绕过去重（手动刷新）。
+/// - `force = false`：受 `GIT_REFRESH_DEDUPE_SECS` 去重约束（自动触发）。
+/// 采集完成后写回 `RUNNING_SESSIONS` 并 emit `running_sessions_changed`。
+pub fn refresh_git_info_background(pid: u32, app_handle: tauri::AppHandle, force: bool) {
+    info!("[refresh_git_info_background] 触发: pid={}, force={}", pid, force);
+
+    thread::spawn(move || {
+        // 1. 读取 cwd（退出锁，避免长持有）
+        let cwd = {
+            let sessions = RUNNING_SESSIONS.lock().unwrap();
+            match sessions.get(&pid) {
+                Some(s) => s.cwd.clone(),
+                None => {
+                    info!("[refresh_git_info_background] pid={} 不存在，跳过", pid);
+                    return;
+                }
+            }
+        };
+
+        // 2. 去重（仅自动触发）
+        if !force {
+            let now = Instant::now();
+            let should_skip = {
+                let mut cache = GIT_REFRESH_CACHE.lock().unwrap();
+                if let Some(last) = cache.get(&cwd) {
+                    if now.duration_since(*last).as_secs() < GIT_REFRESH_DEDUPE_SECS {
+                        true
+                    } else {
+                        cache.insert(cwd.clone(), now);
+                        false
+                    }
+                } else {
+                    cache.insert(cwd.clone(), now);
+                    false
+                }
+            };
+            if should_skip {
+                debug!("[refresh_git_info_background] cwd={} 在 {}s 内已触发，跳过",
+                       cwd, GIT_REFRESH_DEDUPE_SECS);
+                return;
+            }
+        }
+
+        // 3. 采集
+        let git_info = gather_git_info(Path::new(&cwd));
+
+        // 4. 写回
+        {
+            let mut sessions = RUNNING_SESSIONS.lock().unwrap();
+            if let Some(s) = sessions.get_mut(&pid) {
+                s.git_info = git_info;
+                info!("[refresh_git_info_background] 已更新 pid={} 的 git_info", pid);
+            } else {
+                info!("[refresh_git_info_background] pid={} 已移除，丢弃采集结果", pid);
+                return;
+            }
+        }
+
+        // 5. 通知前端
+        let sessions = get_running_sessions();
+        if let Err(e) = app_handle.emit("running_sessions_changed", sessions) {
+            error!("[refresh_git_info_background] 发送事件失败: {}", e);
+        } else {
+            debug!("[refresh_git_info_background] 事件发送成功: pid={}", pid);
+        }
+    });
 }
 
 /// 获取所有运行中 session
