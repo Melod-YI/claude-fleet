@@ -48,6 +48,7 @@ export const useRemoveTrackedRepoMutation = () => {
       )
       // Remove cached worktrees only for this specific repo
       queryClient.removeQueries({ queryKey: ["worktrees", repoPath] })
+      queryClient.removeQueries({ queryKey: ["worktrees", "count", repoPath] })
       toast.success("已从列表中移除仓库")
     },
     onError: (error: unknown) => {

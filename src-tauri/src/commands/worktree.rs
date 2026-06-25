@@ -413,23 +413,22 @@ pub fn count_worktrees_cmd(repo_path: String) -> Result<u32, String> {
 
     let path = Path::new(&repo_path);
 
-    // 1. live 计数
-    let live = match list_worktrees_live(path) {
-        Ok(entries) => count_live_worktrees(&entries),
+    // 1. live 列表（只取一次，同时用于计数与 missing 比对）
+    let live_entries = match list_worktrees_live(path) {
+        Ok(entries) => entries,
         Err(e) => {
             warn!("[count_worktrees_cmd] 获取 live worktree 失败，按 0 处理: {}", e);
-            0
+            Vec::new()
         }
     };
+    let live = count_live_worktrees(&live_entries);
+    let live_paths: std::collections::HashSet<String> =
+        live_entries.iter().map(|e| e.path.clone()).collect();
 
     // 2. missing 计数（DB 有但 live 没有）
     let conn = get_connection().map_err(|e| format!("数据库连接失败: {}", e))?;
     let db_items = list_worktrees_by_repo(&conn, &repo_path)
         .map_err(|e| format!("数据库查询失败: {}", e))?;
-    let live_paths: std::collections::HashSet<String> = match list_worktrees_live(path) {
-        Ok(entries) => entries.iter().map(|e| e.path.clone()).collect(),
-        Err(_) => std::collections::HashSet::new(),
-    };
     let missing = db_items.iter().filter(|d| !live_paths.contains(&d.path)).count() as u32;
 
     let total = live + missing;
