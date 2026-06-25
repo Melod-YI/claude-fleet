@@ -75,6 +75,7 @@ export const useCreateWorktreeMutation = () => {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["worktrees", variables.repoPath] })
+      queryClient.invalidateQueries({ queryKey: ["worktrees", "count", variables.repoPath] })
       toast.success(`Worktree "${_data.name}" 创建成功`)
     },
     onError: (error: unknown) => {
@@ -107,6 +108,7 @@ export const useDeleteWorktreeMutation = () => {
         ["worktrees", repoPath],
         (current) => (current ?? []).filter((w) => w.path !== path)
       )
+      queryClient.invalidateQueries({ queryKey: ["worktrees", "count", repoPath] })
       toast.success("Worktree 已删除")
     },
     onError: (error: unknown) => {
