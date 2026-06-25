@@ -26,6 +26,18 @@ export interface SessionMessage {
 // Session 运行状态（对应 Claude JSON 文件中的三种状态）
 export type SessionStatus = 'busy' | 'idle' | 'waiting'
 
+// 工作目录的 git 概要信息（snake_case，与后端 RunningSession 一致）
+export interface GitInfo {
+  branch: string
+  is_detached: boolean
+  is_worktree: boolean
+  ahead: number
+  behind: number
+  dirty: boolean
+  last_commit_sha: string
+  last_commit_message: string
+}
+
 // Running session (from Tauri backend)
 export interface RunningSession {
   session_id: string
@@ -38,6 +50,7 @@ export interface RunningSession {
   away_summary_at?: number
   last_user_input?: string
   custom_name?: string       // Claude Fleet 自定义名称
+  git_info?: GitInfo
 }
 
 export interface ClaudeSession {
