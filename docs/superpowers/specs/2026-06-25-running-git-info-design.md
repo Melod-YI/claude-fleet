@@ -132,9 +132,7 @@ pub fn refresh_git_info_background(pid: u32, app_handle: tauri::AppHandle, force
 
 ### 4.5 触发点接线
 
-**转入 idle/waiting 触发**：`update_session_status_from_file` 改返回 `bool`——`true` 表示状态由非等待态转入 `Idle` 或 `Waiting`（复用其内部已有的 `old_status`/`new_status`）。该函数仅一个调用方（`sessions_watcher.rs:288`），改返回值安全。
-
-`sessions_watcher.rs` 的 `handle_session_modify` 在调用 `update_session_status_from_file` 后，若返回 `true`，调用 `refresh_git_info_background(session.pid, app_handle.clone(), false)`（自动触发，受去重约束）。`handle_session_modify` 已持有 `app_handle: &tauri::AppHandle`。
+**转入 idle/waiting 触发**：`handle_session_modify`（`sessions_watcher.rs`）已在内部用 `old_status`（调用前经 `get_session_status_by_pid` 读取）与 `session.status` 计算 `is_waiting_now && !was_waiting_before`（用于通知事件，见 307 行）。复用该条件——在该 `if` 块内同时调用 `refresh_git_info_background(session.pid, app_handle.clone(), false)`（自动触发，受去重约束）。**不改动 `update_session_status_from_file` 签名**，避免重复实现转换检测，保持外科手术式改动。`handle_session_modify` 已持有 `app_handle: &tauri::AppHandle`。
 
 **首次加入触发**：`handle_session_create`（`sessions_watcher.rs:226`）在 `add_running_session_from_file` 成功后，调用 `refresh_git_info_background(session.pid, app_handle.clone(), false)`。
 
@@ -199,10 +197,10 @@ export interface RunningSession {
   - `get_current_branch` / `get_last_commit` / `get_upstream_ahead_behind` 各覆盖正常与无上游场景。
 - `git/info.rs`：
   - `gather_git_info` 在临时仓库断言各字段；覆盖 detached、dirty、有/无上游分支场景；非 git 目录返回 `None`。
-- `running_sessions.rs`：
-  - `update_session_status_from_file` 返回值：busy→idle 返回 `true`；idle→idle 返回 `false`；idle→busy 返回 `false`。
 
 > 临时 git 仓库测试用 `tempfile` crate（若未引入则用 `std::env::temp_dir` + 唯一子目录，测试结束清理）。需 git 可执行；CI 在 windows-latest 上有 git。
+
+> 不改动 `update_session_status_from_file` 签名，故无相关返回值测试；转入检测复用 watcher 现有逻辑。
 
 ### 7.2 前端
 
