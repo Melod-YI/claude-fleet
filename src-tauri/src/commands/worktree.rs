@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::db::schema::get_connection;
 use crate::db::worktrees::{
@@ -14,6 +14,7 @@ use crate::db::worktrees::{
 use crate::utils::git::{
     RemoteInfo, get_repo_name, get_remotes, get_local_branches,
     get_remote_branches, get_default_branch, get_ahead_behind, get_dirty_file_count,
+    branch_exists, is_branch_merged, get_main_repo_root,
 };
 use crate::utils::git::worktree::{
     CreateWorktreeOptions, create_worktree, delete_worktree, list_worktrees_live,
@@ -56,6 +57,37 @@ pub struct RepoInfo {
     pub local_branches: Vec<String>,
     pub remote_branches: Vec<String>,
     pub default_branch: String,
+}
+
+/// 删除 worktree 前的安全预检结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeletionSafety {
+    pub is_managed: bool,
+    pub will_delete_branch: bool,
+    pub uncommitted_changes: u32,
+    pub unmerged_commits: u32,
+    pub blocked: bool,
+    pub reasons: Vec<String>,
+}
+
+/// 纯逻辑：根据各项检查值计算 blocked 与 reasons。
+/// - 未提交变更 > 0 → 阻断（无论是否托管）
+/// - will_delete_branch 且 unmerged > 0 → 阻断
+pub fn compute_deletion_safety_fields(
+    uncommitted: u32,
+    unmerged: u32,
+    will_delete_branch: bool,
+) -> (bool, Vec<String>) {
+    let mut reasons = Vec::new();
+    if uncommitted > 0 {
+        reasons.push(format!("{} 个未提交变更", uncommitted));
+    }
+    if will_delete_branch && unmerged > 0 {
+        reasons.push(format!("{} 个未合并到主干的提交", unmerged));
+    }
+    let blocked = !reasons.is_empty();
+    (blocked, reasons)
 }
 
 /// 创建 worktree
@@ -279,21 +311,152 @@ pub fn delete_worktree_cmd(
     info!("[delete_worktree_cmd] 开始: path={}, repo={}, branch={:?}, delete_branch={}",
           path, repo_path, branch, delete_branch);
 
-    // 1. Git 清理（worktree remove + 可选 branch delete）
+    // 解析主仓库根目录：优先 DB 记录（创建时存的主仓库路径，可靠），
+    // 回退 git rev-parse（未托管 worktree）。
+    //
+    // 必须从主仓库执行 git 命令，而非 worktree 自身路径——否则
+    // `git -C <wt> worktree remove <wt>` 的 cwd 落在被删目录内会触发
+    // Permission denied，且目录删除后 `branch_exists`/`branch -D` 因
+    // cwd 失效而失败，导致分支未被删除。
+    let conn = get_connection().map_err(|e| format!("数据库连接失败: {}", e))?;
+    let main_repo = match get_worktree_by_path(&conn, &path)
+        .map_err(|e| format!("数据库查询失败: {}", e))?
+    {
+        Some(db_info) => {
+            info!("[delete_worktree_cmd] 使用 DB repo_path 作为主仓库: {}", db_info.repo_path);
+            db_info.repo_path
+        }
+        None => {
+            let resolved = get_main_repo_root(Path::new(&path))
+                .map_err(|e| format!("解析主仓库失败: {}", e))?;
+            let resolved_str = resolved.to_string_lossy().to_string();
+            info!("[delete_worktree_cmd] 未托管，git 解析主仓库: {}", resolved_str);
+            resolved_str
+        }
+    };
+
+    // 1. Git 清理（worktree remove + 可选 branch delete），从主仓库执行
     delete_worktree(
-        Path::new(&repo_path),
+        Path::new(&main_repo),
         &path,
         branch.as_deref(),
         delete_branch,
     )?;
 
     // 2. 删除数据库记录
-    let conn = get_connection().map_err(|e| format!("数据库连接失败: {}", e))?;
     delete_worktree_by_path(&conn, &path)
         .map_err(|e| format!("数据库删除失败: {}", e))?;
 
     info!("[delete_worktree_cmd] 完成: {}", path);
     Ok(())
+}
+
+/// 删除 worktree 前的安全预检
+#[tauri::command]
+pub fn preflight_delete_worktree_cmd(
+    path: String,
+    repo_path: String,
+    branch: Option<String>,
+) -> Result<DeletionSafety, String> {
+    info!("[preflight_delete_worktree_cmd] 开始: path={}, repo={}, branch={:?}",
+          path, repo_path, branch);
+
+    let repo = Path::new(&repo_path);
+    let wt_path = Path::new(&path);
+
+    // 1. 是否托管（DB 有记录）
+    let conn = get_connection().map_err(|e| format!("数据库连接失败: {}", e))?;
+    let is_managed = get_worktree_by_path(&conn, &path)
+        .map_err(|e| format!("数据库查询失败: {}", e))?
+        .is_some();
+    info!("[preflight_delete_worktree_cmd] is_managed={}", is_managed);
+
+    // 2. 是否会删分支
+    let will_delete_branch = is_managed
+        && branch.as_ref().is_some_and(|b| branch_exists(repo, b));
+    info!("[preflight_delete_worktree_cmd] will_delete_branch={}", will_delete_branch);
+
+    // 3. 未提交变更（托管/未托管都查）
+    let uncommitted_changes = match get_dirty_file_count(wt_path) {
+        Ok(n) => n,
+        Err(e) => {
+            warn!("[preflight_delete_worktree_cmd] 获取未提交变更失败，按 0 处理: {}", e);
+            0
+        }
+    };
+
+    // 4. 未合并提交（仅 will_delete_branch 时查）
+    let unmerged_commits = if will_delete_branch {
+        if let Some(b) = &branch {
+            match get_default_branch(repo) {
+                Ok(main_branch) => match is_branch_merged(repo, b, &main_branch) {
+                    Ok((_, n)) => n,
+                    Err(e) => {
+                        warn!("[preflight_delete_worktree_cmd] 合并检查失败，按 0 处理: {}", e);
+                        0
+                    }
+                },
+                Err(e) => {
+                    warn!("[preflight_delete_worktree_cmd] 获取默认分支失败，按 0 处理: {}", e);
+                    0
+                }
+            }
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
+    let (blocked, reasons) =
+        compute_deletion_safety_fields(uncommitted_changes, unmerged_commits, will_delete_branch);
+
+    info!("[preflight_delete_worktree_cmd] 完成: uncommitted={}, unmerged={}, blocked={}, reasons={:?}",
+          uncommitted_changes, unmerged_commits, blocked, reasons);
+
+    Ok(DeletionSafety {
+        is_managed,
+        will_delete_branch,
+        uncommitted_changes,
+        unmerged_commits,
+        blocked,
+        reasons,
+    })
+}
+
+/// 纯逻辑：统计 live worktree 数（排除主仓库）
+pub fn count_live_worktrees(entries: &[crate::utils::git::worktree::GitWorktreeEntry]) -> u32 {
+    entries.iter().filter(|e| !e.is_main).count() as u32
+}
+
+/// 轻量计数：1 次 git porcelain + 1 次 DB 查询，供仓库折叠徽标使用
+#[tauri::command]
+pub fn count_worktrees_cmd(repo_path: String) -> Result<u32, String> {
+    info!("[count_worktrees_cmd] 开始: repo={}", repo_path);
+
+    let path = Path::new(&repo_path);
+
+    // 1. live 列表（只取一次，同时用于计数与 missing 比对）
+    let live_entries = match list_worktrees_live(path) {
+        Ok(entries) => entries,
+        Err(e) => {
+            warn!("[count_worktrees_cmd] 获取 live worktree 失败，按 0 处理: {}", e);
+            Vec::new()
+        }
+    };
+    let live = count_live_worktrees(&live_entries);
+    let live_paths: std::collections::HashSet<String> =
+        live_entries.iter().map(|e| e.path.clone()).collect();
+
+    // 2. missing 计数（DB 有但 live 没有）
+    let conn = get_connection().map_err(|e| format!("数据库连接失败: {}", e))?;
+    let db_items = list_worktrees_by_repo(&conn, &repo_path)
+        .map_err(|e| format!("数据库查询失败: {}", e))?;
+    let missing = db_items.iter().filter(|d| !live_paths.contains(&d.path)).count() as u32;
+
+    let total = live + missing;
+    info!("[count_worktrees_cmd] 完成: live={}, missing={}, total={}", live, missing, total);
+    Ok(total)
 }
 
 /// 从路径中提取目录名作为 worktree 名称
@@ -382,5 +545,78 @@ mod tests {
         let parsed: RepoInfo = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.name, "myrepo");
         assert_eq!(parsed.remotes.len(), 1);
+    }
+
+    #[test]
+    fn deletion_safety_camel_case_roundtrip() {
+        let s = DeletionSafety {
+            is_managed: true,
+            will_delete_branch: true,
+            uncommitted_changes: 2,
+            unmerged_commits: 3,
+            blocked: true,
+            reasons: vec!["未提交".to_string()],
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains("isManaged"));
+        assert!(json.contains("willDeleteBranch"));
+        assert!(json.contains("uncommittedChanges"));
+        assert!(json.contains("unmergedCommits"));
+        assert!(!json.contains("uncommitted_changes"));
+    }
+
+    #[test]
+    fn compute_safety_not_blocked_when_clean() {
+        let (blocked, reasons) = compute_deletion_safety_fields(0, 0, true);
+        assert!(!blocked);
+        assert!(reasons.is_empty());
+    }
+
+    #[test]
+    fn compute_safety_blocked_by_uncommitted() {
+        let (blocked, reasons) = compute_deletion_safety_fields(5, 0, true);
+        assert!(blocked);
+        assert!(reasons.iter().any(|r| r.contains("未提交") && r.contains("5")));
+    }
+
+    #[test]
+    fn compute_safety_blocked_by_unmerged_when_will_delete_branch() {
+        let (blocked, reasons) = compute_deletion_safety_fields(0, 2, true);
+        assert!(blocked);
+        assert!(reasons.iter().any(|r| r.contains("未合并") && r.contains("2")));
+    }
+
+    #[test]
+    fn compute_safety_ignores_unmerged_when_not_deleting_branch() {
+        // 未托管：will_delete_branch=false，unmerged 不应阻断
+        let (blocked, _reasons) = compute_deletion_safety_fields(0, 2, false);
+        assert!(!blocked);
+    }
+
+    #[test]
+    fn compute_safety_blocked_by_both_lists_both_reasons() {
+        let (blocked, reasons) = compute_deletion_safety_fields(1, 1, true);
+        assert!(blocked);
+        assert_eq!(reasons.len(), 2);
+    }
+
+    use crate::utils::git::worktree::GitWorktreeEntry;
+
+    #[test]
+    fn count_live_excludes_main() {
+        let entries = vec![
+            GitWorktreeEntry { path: "/r".into(), head: "a".into(), branch: Some("main".into()), is_bare: false, is_main: true },
+            GitWorktreeEntry { path: "/r.w/feat".into(), head: "b".into(), branch: Some("feat".into()), is_bare: false, is_main: false },
+            GitWorktreeEntry { path: "/r.w/det".into(), head: "c".into(), branch: None, is_bare: false, is_main: false },
+        ];
+        assert_eq!(count_live_worktrees(&entries), 2);
+    }
+
+    #[test]
+    fn count_live_zero_when_only_main() {
+        let entries = vec![
+            GitWorktreeEntry { path: "/r".into(), head: "a".into(), branch: Some("main".into()), is_bare: false, is_main: true },
+        ];
+        assert_eq!(count_live_worktrees(&entries), 0);
     }
 }

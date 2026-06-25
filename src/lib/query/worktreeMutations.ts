@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { worktreesApi } from "@/lib/api/worktrees"
-import type { TrackedRepo, WorktreeListItem } from "@/types"
+import type { TrackedRepo } from "@/types"
 
 /** Tauri invoke 可能抛出字符串而非 Error 对象，需要安全提取消息 */
 function getErrorMessage(error: unknown): string {
@@ -48,6 +48,7 @@ export const useRemoveTrackedRepoMutation = () => {
       )
       // Remove cached worktrees only for this specific repo
       queryClient.removeQueries({ queryKey: ["worktrees", repoPath] })
+      queryClient.removeQueries({ queryKey: ["worktrees", "count", repoPath] })
       toast.success("已从列表中移除仓库")
     },
     onError: (error: unknown) => {
@@ -75,6 +76,7 @@ export const useCreateWorktreeMutation = () => {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["worktrees", variables.repoPath] })
+      queryClient.invalidateQueries({ queryKey: ["worktrees", "count", variables.repoPath] })
       toast.success(`Worktree "${_data.name}" 创建成功`)
     },
     onError: (error: unknown) => {
@@ -101,12 +103,11 @@ export const useDeleteWorktreeMutation = () => {
       await worktreesApi.deleteWorktree(path, repoPath, branch, deleteBranch)
       return { path, repoPath }
     },
-    onSuccess: ({ path, repoPath }) => {
-      // 乐观更新：立即从缓存中移除，避免 invalidateQueries 的异步延迟
-      queryClient.setQueryData<WorktreeListItem[]>(
-        ["worktrees", repoPath],
-        (current) => (current ?? []).filter((w) => w.path !== path)
-      )
+    onSuccess: () => {
+      // 失效所有 worktree 查询（列表 + 计数，所有仓库）。
+      // 不做针对单个 repoPath 的乐观更新：前端无法由 worktree 路径可靠反推主仓库路径
+      // （app 创建的 worktree 在主仓库同级目录，前缀匹配失败），针对性更新会打偏缓存键。
+      queryClient.invalidateQueries({ queryKey: ["worktrees"] })
       toast.success("Worktree 已删除")
     },
     onError: (error: unknown) => {

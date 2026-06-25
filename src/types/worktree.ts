@@ -43,6 +43,15 @@ export interface WorktreeListItem {
   uncommittedChanges?: number
 }
 
+export interface DeletionSafety {
+  isManaged: boolean
+  willDeleteBranch: boolean
+  uncommittedChanges: number
+  unmergedCommits: number
+  blocked: boolean
+  reasons: string[]
+}
+
 export interface TrackedRepo {
   id: number
   path: string

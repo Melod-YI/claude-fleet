@@ -283,6 +283,28 @@ pub fn get_repo_parent(repo_path: &Path) -> Result<PathBuf, String> {
         .ok_or_else(|| "无法获取仓库父目录".to_string())
 }
 
+/// 从 worktree 路径解析其主仓库根目录。
+///
+/// 用于删除 worktree 时从主仓库（而非 worktree 自身路径）执行 git 命令，
+/// 避免 cwd 落在被删目录内导致 `worktree remove` Permission denied、
+/// 以及目录删除后 `branch -D` / `branch_exists` 因 cwd 失效而失败。
+///
+/// 实现：`git -C <worktree> rev-parse --git-common-dir` 返回主仓库的 `.git`
+/// 目录（worktree 场景为绝对路径），取其父目录即主仓库根。
+pub fn get_main_repo_root(worktree_path: &Path) -> Result<PathBuf, String> {
+    let common_dir = normalize_path(&execute_git(worktree_path, &["rev-parse", "--git-common-dir"])?);
+    let common_path = PathBuf::from(&common_dir);
+    let root = common_path
+        .parent()
+        .ok_or_else(|| "无法从 git-common-dir 解析主仓库根目录".to_string())?;
+    if root.as_os_str().is_empty() {
+        return Err("git-common-dir 返回相对路径，无法解析主仓库根目录".to_string());
+    }
+    info!("[get_main_repo_root] worktree={} -> main_repo={}",
+          worktree_path.display(), root.display());
+    Ok(root.to_path_buf())
+}
+
 /// 获取 worktree 相对 base_ref 的 ahead/behind 提交数。
 /// `repo_path` 指向 worktree 目录，`base_ref` 可以是 `origin/main` 或 `main`。
 pub fn get_ahead_behind(repo_path: &Path, branch: &str, base_ref: &str) -> Result<(u32, u32), String> {
@@ -311,6 +333,34 @@ pub fn get_dirty_file_count(repo_path: &Path) -> Result<u32, String> {
     let output = execute_git(repo_path, &["status", "--porcelain"])?;
     let count = output.lines().filter(|l| !l.is_empty()).count() as u32;
     Ok(count)
+}
+
+/// 解析 `git rev-list --count <range>` 输出为 u32。
+/// 空或非数字返回 0。
+pub fn parse_rev_list_count(output: &str) -> u32 {
+    output.trim().parse::<u32>().unwrap_or(0)
+}
+
+/// 判定 branch 相对 main_branch 的合并状态。
+/// 返回 (is_merged, unmerged_commits)。
+/// unmerged_commits = `git rev-list --count main..branch`（branch 有而 main 没有的提交数）。
+/// best-effort：git 失败时返回 (false, 0)，不阻断删除流程。
+pub fn is_branch_merged(
+    repo_path: &Path,
+    branch: &str,
+    main_branch: &str,
+) -> Result<(bool, u32), String> {
+    let range = format!("{}..{}", main_branch, branch);
+    match execute_git(repo_path, &["rev-list", "--count", &range]) {
+        Ok(output) => {
+            let n = parse_rev_list_count(&output);
+            Ok((n == 0, n))
+        }
+        Err(e) => {
+            warn!("[is_branch_merged] rev-list 失败，按不阻断处理: {}", e);
+            Ok((false, 0))
+        }
+    }
 }
 
 /// 测试辅助：创建临时 git 仓库。仅供 `#[cfg(test)]` 使用。
@@ -517,5 +567,25 @@ mod tests {
         // 当前分支领先 2、落后 3
         let (ahead, behind) = get_upstream_ahead_behind(&repo);
         assert_eq!((ahead, behind), (2, 3), "应 ahead=2(本地领先), behind=3(上游领先)");
+    }
+
+    #[test]
+    fn parse_rev_list_count_parses_number() {
+        assert_eq!(parse_rev_list_count("3"), 3);
+    }
+
+    #[test]
+    fn parse_rev_list_count_trims_whitespace() {
+        assert_eq!(parse_rev_list_count("  12 \n"), 12);
+    }
+
+    #[test]
+    fn parse_rev_list_count_zero_when_empty() {
+        assert_eq!(parse_rev_list_count(""), 0);
+    }
+
+    #[test]
+    fn parse_rev_list_count_zero_when_non_numeric() {
+        assert_eq!(parse_rev_list_count("abc"), 0);
     }
 }
