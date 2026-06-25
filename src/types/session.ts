@@ -31,6 +31,7 @@ export interface GitInfo {
   branch: string
   is_detached: boolean
   is_worktree: boolean
+  worktree_name?: string
   ahead: number
   behind: number
   dirty: boolean

@@ -17,6 +17,8 @@ pub struct GitInfo {
     pub branch: String,                // 分支名；detached 时为短 sha
     pub is_detached: bool,
     pub is_worktree: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worktree_name: Option<String>,  // worktree 目录名（cwd 末段）；非 worktree 时为 None
     pub ahead: u32,                    // 领先上游提交数
     pub behind: u32,                   // 落后上游提交数
     pub dirty: bool,                   // 是否有未提交更改
@@ -36,6 +38,11 @@ pub fn gather_git_info(cwd: &Path) -> Option<GitInfo> {
     }
 
     let is_wt = is_worktree(cwd);
+    let worktree_name = if is_wt {
+        cwd.file_name().map(|s| s.to_string_lossy().to_string())
+    } else {
+        None
+    };
 
     // 2. 分支（detached 时回退短 sha）
     let (branch_opt, is_detached) = match get_current_branch(cwd) {
@@ -76,6 +83,7 @@ pub fn gather_git_info(cwd: &Path) -> Option<GitInfo> {
         branch,
         is_detached,
         is_worktree: is_wt,
+        worktree_name,
         ahead,
         behind,
         dirty,
@@ -140,6 +148,29 @@ mod tests {
         let info = gather_git_info(&repo).expect("应返回 Some");
         assert!(info.is_detached);
         assert_eq!(info.branch, info.last_commit_sha, "detached 时 branch 应为短 sha");
+    }
+
+    #[test]
+    fn gather_worktree_name_is_last_segment() {
+        let main = test_helpers::init_repo("gi-wt-name");
+        let wt_path = test_helpers::unique_temp_path("gi-wt-name-linked");
+        let status = crate::utils::process::command("git")
+            .arg("-C").arg(&main)
+            .args(["worktree", "add", &wt_path.to_string_lossy(), "-b", "feature-y"])
+            .status().unwrap();
+        assert!(status.success(), "git worktree add 失败");
+        let info = gather_git_info(&wt_path).expect("应返回 Some");
+        assert!(info.is_worktree);
+        let expected = wt_path.file_name().unwrap().to_string_lossy().to_string();
+        assert_eq!(info.worktree_name.as_deref(), Some(expected.as_str()));
+    }
+
+    #[test]
+    fn gather_worktree_name_none_for_main_repo() {
+        let repo = test_helpers::init_repo("gi-wt-none");
+        let info = gather_git_info(&repo).expect("应返回 Some");
+        assert!(!info.is_worktree);
+        assert!(info.worktree_name.is_none(), "非 worktree 时 worktree_name 应为 None");
     }
 
     #[test]

@@ -102,6 +102,20 @@ export function SessionCardNew({ session, onJumpToTerminal, onToggleFavorite, on
   const favorite = isFavorite(session.session_id)
   const displayName = getDisplayName(session)
 
+  // 路径缩略显示：符合本应用规范的 worktree（父目录以 .worktrees 结尾）显示末两段，
+  // 便于识别原项目（如 claude-fleet.worktrees\running-git-info）；其余情况显示末段。
+  const pathSegments = session.cwd.split(/[\\/]/).filter(Boolean)
+  const pathDisplayName = (() => {
+    const last = pathSegments[pathSegments.length - 1] ?? session.cwd
+    if (session.git_info?.is_worktree && pathSegments.length >= 2) {
+      const parent = pathSegments[pathSegments.length - 2]
+      if (parent.endsWith(".worktrees")) {
+        return `${parent}\\${last}`
+      }
+    }
+    return last
+  })()
+
   return (
     <div
       className={cn(
@@ -160,6 +174,7 @@ export function SessionCardNew({ session, onJumpToTerminal, onToggleFavorite, on
         <div className="text-xs text-gray-500 mt-2 flex flex-wrap items-center gap-x-2">
           <PathHoverDisplay
             path={session.cwd}
+            displayName={pathDisplayName}
             className="max-w-[200px]"
           />
           <span className="text-gray-300">|</span>
@@ -184,7 +199,9 @@ export function SessionCardNew({ session, onJumpToTerminal, onToggleFavorite, on
               <span className="text-red-500" title="有未提交更改">●</span>
             )}
             {session.git_info.is_worktree && (
-              <span className="text-violet-500" title="位于 git worktree">worktree</span>
+              <span className="text-violet-500" title="位于 git worktree">
+                worktree{session.git_info.worktree_name ? `: ${session.git_info.worktree_name}` : ""}
+              </span>
             )}
             {!compact && (session.git_info.ahead > 0 || session.git_info.behind > 0) && (
               <span title={`领先 ${session.git_info.ahead} / 落后 ${session.git_info.behind}`}>
