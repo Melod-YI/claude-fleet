@@ -12,6 +12,7 @@ use tracing::{info, debug, warn, error};
 use crate::utils::running_sessions::{
     add_running_session_from_file,
     update_session_status_from_file,
+    refresh_git_info_background,
     remove_running_session_by_pid,
     get_running_sessions,
     scan_session_jsonl_force,
@@ -256,6 +257,9 @@ fn handle_session_create(path: &PathBuf, app_handle: &tauri::AppHandle) {
     // 发送状态变化事件
     emit_sessions_changed(app_handle);
 
+    // 后台采集 git 信息（首次加入）
+    refresh_git_info_background(session.pid, app_handle.clone(), false);
+
     // 如果状态是 idle 或 waiting，发送通知事件（都是等待用户输入）
     if session.status == "idle" || session.status == "waiting" {
         debug!("[handle_session_create] 状态为 {}，发送通知事件", session.status);
@@ -307,6 +311,8 @@ fn handle_session_modify(path: &PathBuf, app_handle: &tauri::AppHandle) {
     if is_waiting_now && !was_waiting_before {
         debug!("[handle_session_modify] 状态变为 {}（等待输入），发送通知事件", session.status);
         emit_waiting_input_notification(&session, app_handle);
+        // 转入等待输入：agent 刚完成一轮工作，后台刷新 git 信息
+        refresh_git_info_background(session.pid, app_handle.clone(), false);
     }
 
     let elapsed = start.elapsed();

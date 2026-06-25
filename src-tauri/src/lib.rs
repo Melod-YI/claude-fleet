@@ -15,6 +15,7 @@ use commands::session::{
     start_hooks,
     stop_hooks,
     delete_session_cmd,
+    refresh_git_info_all,
 };
 use commands::session_commands::{
     list_sessions_optimized,
@@ -68,6 +69,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     info!("[setup] 后台 session 初始化完成，{} 个 session，耗时: {}ms", sessions.len(), elapsed.as_millis());
                     if let Err(e) = handle.emit("running_sessions_changed", &sessions) {
                         error!("[setup] 发送 running_sessions_changed 事件失败: {}", e);
+                    }
+                    // 首次打开：对所有已存在的 session 后台采集 git 信息（无视状态）
+                    for s in &sessions {
+                        utils::running_sessions::refresh_git_info_background(s.pid, handle.clone(), false);
                     }
                 }
                 Err(e) => {
@@ -134,6 +139,7 @@ pub fn run() {
             start_hooks,
             stop_hooks,
             delete_session_cmd,
+            refresh_git_info_all,
             // Terminal commands
             jump_to_terminal,
             jump_to_terminal_by_pid,

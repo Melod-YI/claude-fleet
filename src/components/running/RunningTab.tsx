@@ -8,6 +8,7 @@ import { useRunningSessions } from "@/hooks/useRunningSessions"
 import type { RunningSession } from "@/types"
 import { useSettingsStore, useFavoriteStore } from "@/stores"
 import { jumpToTerminal } from "@/services"
+import { invoke } from "@tauri-apps/api/core"
 import { RefreshCw, Plus } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { NewSessionDialog } from "@/components/dialogs/NewSessionDialog"
@@ -46,6 +47,13 @@ export function RunningTab() {
 
   const handleRefresh = async () => {
     setRefreshing(true)
+    try {
+      // 派发后台全量 git 信息采集（force，绕过去重）
+      await invoke('refresh_git_info_all')
+    } catch (e) {
+      // git 采集失败不阻塞主刷新流程
+      console.warn('refresh_git_info_all 失败', e)
+    }
     await refresh()
     setRefreshing(false)
   }
