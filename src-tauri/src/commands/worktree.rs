@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::db::schema::get_connection;
 use crate::db::worktrees::{
@@ -14,6 +14,7 @@ use crate::db::worktrees::{
 use crate::utils::git::{
     RemoteInfo, get_repo_name, get_remotes, get_local_branches,
     get_remote_branches, get_default_branch, get_ahead_behind, get_dirty_file_count,
+    branch_exists, is_branch_merged,
 };
 use crate::utils::git::worktree::{
     CreateWorktreeOptions, create_worktree, delete_worktree, list_worktrees_live,
@@ -325,6 +326,79 @@ pub fn delete_worktree_cmd(
 
     info!("[delete_worktree_cmd] 完成: {}", path);
     Ok(())
+}
+
+/// 删除 worktree 前的安全预检
+#[tauri::command]
+pub fn preflight_delete_worktree_cmd(
+    path: String,
+    repo_path: String,
+    branch: Option<String>,
+) -> Result<DeletionSafety, String> {
+    info!("[preflight_delete_worktree_cmd] 开始: path={}, repo={}, branch={:?}",
+          path, repo_path, branch);
+
+    let repo = Path::new(&repo_path);
+    let wt_path = Path::new(&path);
+
+    // 1. 是否托管（DB 有记录）
+    let conn = get_connection().map_err(|e| format!("数据库连接失败: {}", e))?;
+    let is_managed = get_worktree_by_path(&conn, &path)
+        .map_err(|e| format!("数据库查询失败: {}", e))?
+        .is_some();
+    info!("[preflight_delete_worktree_cmd] is_managed={}", is_managed);
+
+    // 2. 是否会删分支
+    let will_delete_branch = is_managed
+        && branch.as_ref().is_some_and(|b| branch_exists(repo, b));
+    info!("[preflight_delete_worktree_cmd] will_delete_branch={}", will_delete_branch);
+
+    // 3. 未提交变更（托管/未托管都查）
+    let uncommitted_changes = match get_dirty_file_count(wt_path) {
+        Ok(n) => n,
+        Err(e) => {
+            warn!("[preflight_delete_worktree_cmd] 获取未提交变更失败，按 0 处理: {}", e);
+            0
+        }
+    };
+
+    // 4. 未合并提交（仅 will_delete_branch 时查）
+    let unmerged_commits = if will_delete_branch {
+        if let Some(b) = &branch {
+            match get_default_branch(repo) {
+                Ok(main_branch) => match is_branch_merged(repo, b, &main_branch) {
+                    Ok((_, n)) => n,
+                    Err(e) => {
+                        warn!("[preflight_delete_worktree_cmd] 合并检查失败，按 0 处理: {}", e);
+                        0
+                    }
+                },
+                Err(e) => {
+                    warn!("[preflight_delete_worktree_cmd] 获取默认分支失败，按 0 处理: {}", e);
+                    0
+                }
+            }
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
+    let (blocked, reasons) =
+        compute_deletion_safety_fields(uncommitted_changes, unmerged_commits, will_delete_branch);
+
+    info!("[preflight_delete_worktree_cmd] 完成: uncommitted={}, unmerged={}, blocked={}, reasons={:?}",
+          uncommitted_changes, unmerged_commits, blocked, reasons);
+
+    Ok(DeletionSafety {
+        is_managed,
+        will_delete_branch,
+        uncommitted_changes,
+        unmerged_commits,
+        blocked,
+        reasons,
+    })
 }
 
 /// 从路径中提取目录名作为 worktree 名称
