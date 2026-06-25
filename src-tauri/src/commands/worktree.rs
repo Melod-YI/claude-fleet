@@ -14,7 +14,7 @@ use crate::db::worktrees::{
 use crate::utils::git::{
     RemoteInfo, get_repo_name, get_remotes, get_local_branches,
     get_remote_branches, get_default_branch, get_ahead_behind, get_dirty_file_count,
-    branch_exists, is_branch_merged,
+    branch_exists, is_branch_merged, get_main_repo_root,
 };
 use crate::utils::git::worktree::{
     CreateWorktreeOptions, create_worktree, delete_worktree, list_worktrees_live,
@@ -311,16 +311,39 @@ pub fn delete_worktree_cmd(
     info!("[delete_worktree_cmd] 开始: path={}, repo={}, branch={:?}, delete_branch={}",
           path, repo_path, branch, delete_branch);
 
-    // 1. Git 清理（worktree remove + 可选 branch delete）
+    // 解析主仓库根目录：优先 DB 记录（创建时存的主仓库路径，可靠），
+    // 回退 git rev-parse（未托管 worktree）。
+    //
+    // 必须从主仓库执行 git 命令，而非 worktree 自身路径——否则
+    // `git -C <wt> worktree remove <wt>` 的 cwd 落在被删目录内会触发
+    // Permission denied，且目录删除后 `branch_exists`/`branch -D` 因
+    // cwd 失效而失败，导致分支未被删除。
+    let conn = get_connection().map_err(|e| format!("数据库连接失败: {}", e))?;
+    let main_repo = match get_worktree_by_path(&conn, &path)
+        .map_err(|e| format!("数据库查询失败: {}", e))?
+    {
+        Some(db_info) => {
+            info!("[delete_worktree_cmd] 使用 DB repo_path 作为主仓库: {}", db_info.repo_path);
+            db_info.repo_path
+        }
+        None => {
+            let resolved = get_main_repo_root(Path::new(&path))
+                .map_err(|e| format!("解析主仓库失败: {}", e))?;
+            let resolved_str = resolved.to_string_lossy().to_string();
+            info!("[delete_worktree_cmd] 未托管，git 解析主仓库: {}", resolved_str);
+            resolved_str
+        }
+    };
+
+    // 1. Git 清理（worktree remove + 可选 branch delete），从主仓库执行
     delete_worktree(
-        Path::new(&repo_path),
+        Path::new(&main_repo),
         &path,
         branch.as_deref(),
         delete_branch,
     )?;
 
     // 2. 删除数据库记录
-    let conn = get_connection().map_err(|e| format!("数据库连接失败: {}", e))?;
     delete_worktree_by_path(&conn, &path)
         .map_err(|e| format!("数据库删除失败: {}", e))?;
 

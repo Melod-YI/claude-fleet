@@ -206,6 +206,28 @@ pub fn get_repo_parent(repo_path: &Path) -> Result<PathBuf, String> {
         .ok_or_else(|| "无法获取仓库父目录".to_string())
 }
 
+/// 从 worktree 路径解析其主仓库根目录。
+///
+/// 用于删除 worktree 时从主仓库（而非 worktree 自身路径）执行 git 命令，
+/// 避免 cwd 落在被删目录内导致 `worktree remove` Permission denied、
+/// 以及目录删除后 `branch -D` / `branch_exists` 因 cwd 失效而失败。
+///
+/// 实现：`git -C <worktree> rev-parse --git-common-dir` 返回主仓库的 `.git`
+/// 目录（worktree 场景为绝对路径），取其父目录即主仓库根。
+pub fn get_main_repo_root(worktree_path: &Path) -> Result<PathBuf, String> {
+    let common_dir = normalize_path(&execute_git(worktree_path, &["rev-parse", "--git-common-dir"])?);
+    let common_path = PathBuf::from(&common_dir);
+    let root = common_path
+        .parent()
+        .ok_or_else(|| "无法从 git-common-dir 解析主仓库根目录".to_string())?;
+    if root.as_os_str().is_empty() {
+        return Err("git-common-dir 返回相对路径，无法解析主仓库根目录".to_string());
+    }
+    info!("[get_main_repo_root] worktree={} -> main_repo={}",
+          worktree_path.display(), root.display());
+    Ok(root.to_path_buf())
+}
+
 /// 获取 worktree 相对 base_ref 的 ahead/behind 提交数。
 /// `repo_path` 指向 worktree 目录，`base_ref` 可以是 `origin/main` 或 `main`。
 pub fn get_ahead_behind(repo_path: &Path, branch: &str, base_ref: &str) -> Result<(u32, u32), String> {
