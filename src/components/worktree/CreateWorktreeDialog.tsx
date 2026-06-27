@@ -100,11 +100,12 @@ export function CreateWorktreeDialog({
       const res = await fetchMutation.mutateAsync(repoPath)
       //无论 fetch 成功失败都刷新本地分支视图（失败时展示本地缓存）
       await refetchRepoInfo()
-      if (!res.success && res.message) {
-        setFetchError(res.message)
+      if (!res.success) {
+        setFetchError(res.message ?? "远端刷新失败")
       }
     } catch {
-      // invoke 级传输错误：不刷新列表，静默处理
+      // invoke 级传输错误：提示后端不可达（不刷新列表）
+      setFetchError("无法连接后端")
     }
   }
 
