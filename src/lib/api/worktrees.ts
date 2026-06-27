@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core"
-import type { TrackedRepo, WorktreeListItem, WorktreeInfo, RepoInfo, DeletionSafety } from "@/types"
+import type { TrackedRepo, WorktreeListItem, WorktreeInfo, RepoInfo, FetchResult, DeletionSafety } from "@/types"
 
 export const worktreesApi = {
   // Tracked repos
@@ -53,5 +53,10 @@ export const worktreesApi = {
   // Repo info
   async getRepoInfo(repoPath: string): Promise<RepoInfo> {
     return await invoke("get_repo_info_cmd", { repoPath })
+  },
+
+  // 拉取远端（更新远端引用）
+  async fetchRepoRemotes(repoPath: string): Promise<FetchResult> {
+    return await invoke("fetch_repo_remotes_cmd", { repoPath })
   },
 }
