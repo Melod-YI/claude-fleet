@@ -14,7 +14,7 @@ use crate::db::worktrees::{
 use crate::utils::git::{
     RemoteInfo, get_repo_name, get_remotes, get_local_branches,
     get_remote_branches, get_default_branch, get_ahead_behind, get_dirty_file_count,
-    branch_exists, is_branch_merged, get_main_repo_root,
+    branch_exists, is_branch_merged, get_main_repo_root, execute_git,
 };
 use crate::utils::git::worktree::{
     CreateWorktreeOptions, create_worktree, delete_worktree, list_worktrees_live,
@@ -84,10 +84,40 @@ pub fn compute_deletion_safety_fields(
         reasons.push(format!("{} 个未提交变更", uncommitted));
     }
     if will_delete_branch && unmerged > 0 {
-        reasons.push(format!("{} 个未合并到主干的提交", unmerged));
+        reasons.push(format!("{} 个未合并到基线的提交", unmerged));
     }
     let blocked = !reasons.is_empty();
     (blocked, reasons)
+}
+
+/// 选择合并对比基准。
+/// 优先用 worktree 创建时记录的 base_ref（须能被 git 解析）；缺失或已失效则回退到仓库默认分支；
+/// 默认分支也无法确定时返回 None（跳过合并检查，不阻断删除）。
+pub fn choose_merge_base(repo: &Path, wt_info: Option<&WorktreeInfo>) -> Option<String> {
+    if let Some(info) = wt_info {
+        let base = info.base_ref.trim();
+        if !base.is_empty() && ref_resolves(repo, base) {
+            info!("[choose_merge_base] 使用 base_ref 作为基准: {}", base);
+            return Some(base.to_string());
+        } else if !base.is_empty() {
+            info!("[choose_merge_base] base_ref 不可解析，回退默认分支: {}", base);
+        }
+    }
+    match get_default_branch(repo) {
+        Ok(db) => {
+            info!("[choose_merge_base] 使用默认分支作为基准: {}", db);
+            Some(db)
+        }
+        Err(e) => {
+            warn!("[choose_merge_base] 获取默认分支失败，跳过合并检查: {}", e);
+            None
+        }
+    }
+}
+
+/// ref 是否能被 git 解析（分支名 / tag / commit SHA 均可）。
+fn ref_resolves(repo: &Path, r: &str) -> bool {
+    execute_git(repo, &["rev-parse", "--verify", "--quiet", r]).is_ok()
 }
 
 /// 创建 worktree
@@ -364,11 +394,11 @@ pub fn preflight_delete_worktree_cmd(
     let repo = Path::new(&repo_path);
     let wt_path = Path::new(&path);
 
-    // 1. 是否托管（DB 有记录）
+    // 1. 是否托管（DB 有记录）；同时取 base_ref 作为合并对比基准
     let conn = get_connection().map_err(|e| format!("数据库连接失败: {}", e))?;
-    let is_managed = get_worktree_by_path(&conn, &path)
-        .map_err(|e| format!("数据库查询失败: {}", e))?
-        .is_some();
+    let wt_info = get_worktree_by_path(&conn, &path)
+        .map_err(|e| format!("数据库查询失败: {}", e))?;
+    let is_managed = wt_info.is_some();
     info!("[preflight_delete_worktree_cmd] is_managed={}", is_managed);
 
     // 2. 是否会删分支
@@ -386,18 +416,23 @@ pub fn preflight_delete_worktree_cmd(
     };
 
     // 4. 未合并提交（仅 will_delete_branch 时查）
+    //    对比基准优先用 worktree 创建时记录的 base_ref：即"该分支相对其创建基线多了多少提交"，
+    //    这才是删分支会真正丢失的工作。若用仓库默认分支（main/master）作基准，从功能分支切出的
+    //    新 worktree 会把上游已有的提交误判为"未合并"（如 base 分支领先 main 88 个提交时）。
+    //    base_ref 缺失或已失效（如基线分支被删）时，回退到仓库默认分支，保留旧行为。
     let unmerged_commits = if will_delete_branch {
         if let Some(b) = &branch {
-            match get_default_branch(repo) {
-                Ok(main_branch) => match is_branch_merged(repo, b, &main_branch) {
+            let base = choose_merge_base(repo, wt_info.as_ref());
+            match base {
+                Some(base) => match is_branch_merged(repo, b, &base) {
                     Ok((_, n)) => n,
                     Err(e) => {
                         warn!("[preflight_delete_worktree_cmd] 合并检查失败，按 0 处理: {}", e);
                         0
                     }
                 },
-                Err(e) => {
-                    warn!("[preflight_delete_worktree_cmd] 获取默认分支失败，按 0 处理: {}", e);
+                None => {
+                    warn!("[preflight_delete_worktree_cmd] 无法确定合并基准，跳过合并检查");
                     0
                 }
             }
@@ -598,6 +633,49 @@ mod tests {
         let (blocked, reasons) = compute_deletion_safety_fields(1, 1, true);
         assert!(blocked);
         assert_eq!(reasons.len(), 2);
+    }
+
+    /// 构造测试用 WorktreeInfo（仅 base_ref 影响基准选择）。
+    fn wt_info_with_base(base: &str) -> WorktreeInfo {
+        WorktreeInfo {
+            id: 0,
+            name: "n".into(),
+            branch: "wt".into(),
+            path: "/x".into(),
+            repo_name: "r".into(),
+            repo_path: "/r".into(),
+            base_ref: base.into(),
+            created_at: 0,
+        }
+    }
+
+    #[test]
+    fn choose_merge_base_prefers_resolvable_base_ref() {
+        // 从功能分支切出的 worktree：base_ref 指向真实存在的分支，应直接采用。
+        let repo = crate::utils::git::test_helpers::init_repo("cmb-pref");
+        let _ = crate::utils::process::command("git")
+            .arg("-C").arg(&repo)
+            .args(["branch", "feat"])
+            .status();
+        let info = wt_info_with_base("feat");
+        assert_eq!(choose_merge_base(&repo, Some(&info)), Some("feat".to_string()));
+    }
+
+    #[test]
+    fn choose_merge_base_falls_back_when_base_ref_stale() {
+        // base_ref 指向已被删除的分支 → 应回退到仓库默认分支（本地无 remote 时为 "main"）。
+        let repo = crate::utils::git::test_helpers::init_repo("cmb-stale");
+        let info = wt_info_with_base("ghost-branch");
+        let base = choose_merge_base(&repo, Some(&info));
+        assert!(base.is_some(), "回退后应返回一个基准");
+        assert_ne!(base.as_deref(), Some("ghost-branch"), "不应返回失效的 base_ref");
+    }
+
+    #[test]
+    fn choose_merge_base_falls_back_when_no_info() {
+        // 未托管 worktree（无 DB 记录）：wt_info=None，回退默认分支。
+        let repo = crate::utils::git::test_helpers::init_repo("cmb-none");
+        assert!(choose_merge_base(&repo, None).is_some());
     }
 
     use crate::utils::git::worktree::GitWorktreeEntry;

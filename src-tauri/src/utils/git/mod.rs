@@ -588,4 +588,45 @@ mod tests {
     fn parse_rev_list_count_zero_when_non_numeric() {
         assert_eq!(parse_rev_list_count("abc"), 0);
     }
+
+    #[test]
+    fn is_branch_merged_zero_against_creation_base() {
+        // 复现"从功能分支切出的新 worktree"场景：
+        //   默认分支 D —— feat（领先 D 3 个提交）—— wt（自 feat 切出，无新提交）
+        // 以创建基线 feat 为基准：wt 相对 feat 无新增提交 → 未合并数 = 0。
+        // 以默认分支 D 为基准（旧逻辑）：wt 领先 D 3 个提交 → 误报 3 个未合并。
+        let repo = test_helpers::init_repo("ibm-base");
+        let default_branch = get_current_branch(&repo).unwrap().0.unwrap();
+
+        // 创建 feat 分支并加 3 个提交
+        let s = crate::utils::process::command("git")
+            .arg("-C").arg(&repo)
+            .args(["branch", "feat"])
+            .status().unwrap();
+        assert!(s.success(), "git branch feat 失败");
+        let s = crate::utils::process::command("git")
+            .arg("-C").arg(&repo)
+            .args(["checkout", "feat"])
+            .status().unwrap();
+        assert!(s.success(), "git checkout feat 失败");
+        test_helpers::commit(&repo, "f1.txt", "f1");
+        test_helpers::commit(&repo, "f2.txt", "f2");
+        test_helpers::commit(&repo, "f3.txt", "f3");
+
+        // 自 feat 切出 wt 分支（无新提交），模拟 worktree 创建
+        let s = crate::utils::process::command("git")
+            .arg("-C").arg(&repo)
+            .args(["branch", "wt", "feat"])
+            .status().unwrap();
+        assert!(s.success(), "git branch wt feat 失败");
+
+        // 正确基准（base_ref=feat）：未合并 0
+        let (merged, n) = is_branch_merged(&repo, "wt", "feat").unwrap();
+        assert!(merged, "相对创建基线应判定为已合并");
+        assert_eq!(n, 0, "相对创建基线的未合并数应为 0");
+
+        // 错误基准（默认分支）：夸大为 3 —— 这正是用户遇到的"88 个未合并"误报来源
+        let (_, wrong_n) = is_branch_merged(&repo, "wt", &default_branch).unwrap();
+        assert_eq!(wrong_n, 3, "相对默认分支会被误报为 3 个未合并提交");
+    }
 }
