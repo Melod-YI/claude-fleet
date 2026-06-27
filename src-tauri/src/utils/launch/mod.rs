@@ -180,8 +180,7 @@ pub fn spawn_plan(plan: &SpawnPlan) -> Result<(), String> {
         command.creation_flags(flags);
     }
 
-    command
-        .spawn()
+    crate::utils::process::spawn(&mut command)
         .map(|_| ())
         .map_err(|e| format!("启动终端失败: {}", e))
 }
