@@ -14,6 +14,11 @@ export interface RepoInfo {
   defaultBranch: string
 }
 
+export interface FetchResult {
+  success: boolean
+  message: string | null
+}
+
 export interface WorktreeInfo {
   id: number
   name: string

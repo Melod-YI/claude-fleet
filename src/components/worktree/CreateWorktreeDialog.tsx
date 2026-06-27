@@ -19,7 +19,7 @@ import {
 import { cn } from "@/lib/utils"
 import { Loader2, ChevronDown, ChevronRight, RefreshCw } from "lucide-react"
 import { useRepoInfoQuery } from "@/lib/query/worktreeQueries"
-import { useCreateWorktreeMutation } from "@/lib/query/worktreeMutations"
+import { useCreateWorktreeMutation, useFetchRepoRemotesMutation } from "@/lib/query/worktreeMutations"
 import { useSettingsStore } from "@/stores/settingsStore"
 import type { WorktreeInfo } from "@/types"
 
@@ -50,6 +50,8 @@ export function CreateWorktreeDialog({
     open ? repoPath : undefined
   )
   const createMutation = useCreateWorktreeMutation()
+  const fetchMutation = useFetchRepoRemotesMutation()
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const lastBaseRef = useSettingsStore((s) => s.lastBaseRef)
   const setLastBaseRef = useSettingsStore((s) => s.setLastBaseRef)
 
@@ -60,6 +62,7 @@ export function CreateWorktreeDialog({
       setShowAdvanced(false)
       setCustomBranch("")
       setBranchSearch("")
+      setFetchError(null)
       // Restore last selected baseRef from settings store
       setBaseRef(lastBaseRef)
     }
@@ -90,6 +93,20 @@ export function CreateWorktreeDialog({
     }
     setBaseRef(repoInfo.defaultBranch)
   }, [repoInfo, baseRef])
+
+  const handleRefresh = async () => {
+    setFetchError(null)
+    try {
+      const res = await fetchMutation.mutateAsync(repoPath)
+      //无论 fetch 成功失败都刷新本地分支视图（失败时展示本地缓存）
+      await refetchRepoInfo()
+      if (!res.success && res.message) {
+        setFetchError(res.message)
+      }
+    } catch {
+      // invoke 级传输错误：不刷新列表，静默处理
+    }
+  }
 
   const handleCreate = async () => {
     if (!name.trim()) return
@@ -229,12 +246,20 @@ export function CreateWorktreeDialog({
                   <Label className="text-sm">基于分支 / ref</Label>
                   <button
                     type="button"
-                    onClick={() => refetchRepoInfo()}
-                    disabled={repoInfoFetching}
-                    className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-                    title="刷新分支列表"
+                    onClick={handleRefresh}
+                    disabled={fetchMutation.isPending || repoInfoFetching}
+                    className="relative text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                    title={fetchError ? `远端刷新失败：${fetchError}，显示为本地缓存` : "刷新分支列表"}
                   >
-                    <RefreshCw className={cn("w-3 h-3", repoInfoFetching && "animate-spin")} />
+                    <RefreshCw
+                      className={cn(
+                        "w-3 h-3",
+                        (fetchMutation.isPending || repoInfoFetching) && "animate-spin"
+                      )}
+                    />
+                    {fetchError && (
+                      <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-red-500" />
+                    )}
                   </button>
                 </div>
                 {repoInfoLoading ? (

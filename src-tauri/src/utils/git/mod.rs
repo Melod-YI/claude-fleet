@@ -8,6 +8,10 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 
+use std::io::Read;
+use std::process::Stdio;
+use std::time::{Duration, Instant};
+
 /// 归一化路径分隔符。
 /// Git 在 Windows 上输出正斜杠（C:/path），而 Rust PathBuf 使用反斜杠（C:\path）。
 /// 在路径进入系统时调用此函数，统一为平台原生格式。
@@ -142,6 +146,71 @@ pub fn get_remote_branches(repo_path: &Path) -> Result<Vec<String>, String> {
         .collect();
     info!("[get_remote_branches] 共 {} 个远程分支", branches.len());
     Ok(branches)
+}
+
+/// 拉取所有远端仓库（git fetch --all --prune），带超时。
+/// 成功返回 Ok(())，失败/超时返回 Err(message)。
+/// 独立于 execute_git：后者用 .output() 阻塞，无法施加超时。
+pub fn fetch_remotes(repo_path: &Path, timeout_secs: u64) -> Result<(), String> {
+    info!("[fetch_remotes] 开始: repo={}, timeout={}s", repo_path.display(), timeout_secs);
+
+    let mut child = crate::utils::process::command("git")
+        .arg("-C")
+        .arg(repo_path)
+        .args(["fetch", "--all", "--prune"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("无法启动 git fetch: {}", e))?;
+
+    // 线程排空 stderr，避免管道写满导致子进程阻塞死锁
+    let stderr_pipe = child.stderr.take();
+    let stderr_thread = std::thread::spawn(move || {
+        let mut buf = String::new();
+        if let Some(mut s) = stderr_pipe {
+            let _ = s.read_to_string(&mut buf);
+        }
+        buf
+    });
+
+    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = stderr_thread.join();
+                    let msg = format!("git fetch 超时（{}s）", timeout_secs);
+                    warn!("[fetch_remotes] {}", msg);
+                    return Err(msg);
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            }
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = stderr_thread.join();
+                return Err(format!("等待 git fetch 进程失败: {}", e));
+            }
+        }
+    };
+
+    let stderr = stderr_thread.join().unwrap_or_default();
+    if status.success() {
+        info!("[fetch_remotes] 完成");
+        Ok(())
+    } else {
+        let stderr = stderr.trim();
+        let msg = if stderr.is_empty() {
+            format!("git fetch 失败（exit {}）", status.code().unwrap_or(-1))
+        } else {
+            format!("git fetch 失败: {}", stderr)
+        };
+        warn!("[fetch_remotes] {}", msg);
+        Err(msg)
+    }
 }
 
 /// 检测默认分支。优先级：
@@ -390,7 +459,7 @@ pub(crate) mod test_helpers {
     }
 
     /// 在 path 执行 git 命令（用 process::command 避免 Windows 弹窗）
-    fn git(path: &Path, args: &[&str]) {
+    pub fn git(path: &Path, args: &[&str]) {
         let status = crate::utils::process::command("git")
             .arg("-C")
             .arg(path)
@@ -628,5 +697,54 @@ mod tests {
         // 错误基准（默认分支）：夸大为 3 —— 这正是用户遇到的"88 个未合并"误报来源
         let (_, wrong_n) = is_branch_merged(&repo, "wt", &default_branch).unwrap();
         assert_eq!(wrong_n, 3, "相对默认分支会被误报为 3 个未合并提交");
+    }
+
+    #[test]
+    fn fetch_remotes_returns_err_on_non_git_dir() {
+        let dir = test_helpers::unique_temp_dir("fetch-nongit");
+        let result = fetch_remotes(&dir, 30);
+        assert!(result.is_err(), "非 git 目录应返回错误");
+        assert!(!result.unwrap_err().is_empty(), "错误消息不应为空");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fetch_remotes_success_against_local_bare() {
+        use crate::utils::git::test_helpers::{git, init_repo, unique_temp_path};
+
+        // 1. bare 远端（路径不存在，由 git init --bare 创建）
+        let remote = unique_temp_path("fetch-bare");
+        let status = crate::utils::process::command("git")
+            .arg("init")
+            .arg("--bare")
+            .arg(&remote)
+            .status()
+            .expect("git init --bare 执行失败");
+        assert!(status.success(), "git init --bare 失败");
+
+        // 2. 工作仓库（init_repo 已含 config 与初始提交）
+        let work = init_repo("fetch-work");
+        git(&work, &["branch", "-M", "main"]);
+        let remote_str = remote.to_string_lossy().to_string();
+        git(&work, &["remote", "add", "origin", remote_str.as_str()]);
+        git(&work, &["push", "origin", "main"]);
+
+        // 3. 删除远程跟踪引用，使 fetch 有实际工作可做
+        git(&work, &["update-ref", "-d", "refs/remotes/origin/main"]);
+
+        // 4. fetch 应成功
+        let result = fetch_remotes(&work, 30);
+        assert!(result.is_ok(), "fetch 应成功，实际: {:?}", result.err());
+
+        // 5. 远程分支列表应包含 origin/main
+        let remote_branches = get_remote_branches(&work).expect("读取远程分支失败");
+        assert!(
+            remote_branches.iter().any(|b| b == "origin/main"),
+            "fetch 后应能看到 origin/main，实际: {:?}",
+            remote_branches
+        );
+
+        let _ = std::fs::remove_dir_all(&work);
+        let _ = std::fs::remove_dir_all(&remote);
     }
 }

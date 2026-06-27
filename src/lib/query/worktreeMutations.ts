@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { worktreesApi } from "@/lib/api/worktrees"
-import type { TrackedRepo } from "@/types"
+import type { TrackedRepo, FetchResult } from "@/types"
 
 /** Tauri invoke 可能抛出字符串而非 Error 对象，需要安全提取消息 */
 function getErrorMessage(error: unknown): string {
@@ -113,5 +113,13 @@ export const useDeleteWorktreeMutation = () => {
     onError: (error: unknown) => {
       toast.error(`删除 Worktree 失败: ${getErrorMessage(error)}`)
     },
+  })
+}
+
+// 拉取远端引用。成功/失败信息由调用方（对话框）依据返回的 FetchResult 决定如何展示，
+// 此处不内置 toast，避免与对话框内的状态展示重复。
+export const useFetchRepoRemotesMutation = () => {
+  return useMutation<FetchResult, Error, string>({
+    mutationFn: (repoPath: string) => worktreesApi.fetchRepoRemotes(repoPath),
   })
 }

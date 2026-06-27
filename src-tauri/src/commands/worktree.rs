@@ -14,7 +14,7 @@ use crate::db::worktrees::{
 use crate::utils::git::{
     RemoteInfo, get_repo_name, get_remotes, get_local_branches,
     get_remote_branches, get_default_branch, get_ahead_behind, get_dirty_file_count,
-    branch_exists, is_branch_merged, get_main_repo_root, execute_git,
+    branch_exists, is_branch_merged, get_main_repo_root, execute_git, fetch_remotes,
 };
 use crate::utils::git::worktree::{
     CreateWorktreeOptions, create_worktree, delete_worktree, list_worktrees_live,
@@ -57,6 +57,14 @@ pub struct RepoInfo {
     pub local_branches: Vec<String>,
     pub remote_branches: Vec<String>,
     pub default_branch: String,
+}
+
+/// fetch 远端仓库的结果（前端用于决定是否显示失败提示）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FetchResult {
+    pub success: bool,
+    pub message: Option<String>,
 }
 
 /// 删除 worktree 前的安全预检结果
@@ -328,6 +336,25 @@ pub fn get_repo_info_cmd(
           info.name, info.remotes.len(), info.local_branches.len(), info.remote_branches.len());
 
     Ok(info)
+}
+
+/// 拉取远端仓库（git fetch --all --prune，30s 超时）。
+/// fetch 失败/超时时仍返回 Ok(FetchResult { success: false })，
+/// 供前端降级展示本地缓存分支；仅命令本身无法执行才返回 Err。
+#[tauri::command]
+pub fn fetch_repo_remotes_cmd(repo_path: String) -> Result<FetchResult, String> {
+    info!("[fetch_repo_remotes_cmd] 开始: repo={}", repo_path);
+    let path = Path::new(&repo_path);
+    match fetch_remotes(path, 30) {
+        Ok(()) => {
+            info!("[fetch_repo_remotes_cmd] 完成: 成功");
+            Ok(FetchResult { success: true, message: None })
+        }
+        Err(e) => {
+            warn!("[fetch_repo_remotes_cmd] fetch 失败，降级为本地缓存: {}", e);
+            Ok(FetchResult { success: false, message: Some(e) })
+        }
+    }
 }
 
 /// 删除 worktree（git 清理 + 数据库删除）
@@ -696,5 +723,28 @@ mod tests {
             GitWorktreeEntry { path: "/r".into(), head: "a".into(), branch: Some("main".into()), is_bare: false, is_main: true },
         ];
         assert_eq!(count_live_worktrees(&entries), 0);
+    }
+
+    #[test]
+    fn fetch_result_camel_case_roundtrip() {
+        // 成功变体
+        let ok = FetchResult { success: true, message: None };
+        let json = serde_json::to_string(&ok).unwrap();
+        assert!(json.contains("\"success\":true"));
+        let parsed: FetchResult = serde_json::from_str(&json).unwrap();
+        assert!(parsed.success);
+        assert!(parsed.message.is_none());
+
+        // 失败变体
+        let fail = FetchResult {
+            success: false,
+            message: Some("git fetch 失败: timeout".to_string()),
+        };
+        let json = serde_json::to_string(&fail).unwrap();
+        assert!(json.contains("\"success\":false"));
+        assert!(json.contains("\"message\":\"git fetch 失败: timeout\""));
+        let parsed: FetchResult = serde_json::from_str(&json).unwrap();
+        assert!(!parsed.success);
+        assert_eq!(parsed.message.unwrap(), "git fetch 失败: timeout");
     }
 }
