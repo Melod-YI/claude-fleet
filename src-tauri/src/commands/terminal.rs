@@ -178,9 +178,9 @@ pub fn open_directory(path: String) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        Command::new("explorer")
-            .arg(&path)
-            .spawn()
+        let mut cmd = Command::new("explorer");
+        cmd.arg(&path);
+        crate::utils::process::spawn(&mut cmd)
             .map_err(|e| format!("打开目录失败: {}。请确保路径存在且有效", e))?;
         info!("[open_directory] 完成");
         Ok(())
@@ -203,9 +203,9 @@ pub fn open_in_vscode(path: String) -> Result<(), String> {
     {
         // 使用 cmd.exe 执行 code 命令，确保能找到 PATH 中的 code
         // code 命令会启动 VSCode 后自动退出
-        crate::utils::process::command("cmd.exe")
-            .args(["/C", "code", &path])
-            .spawn()
+        let mut cmd = crate::utils::process::command("cmd.exe");
+        cmd.args(["/C", "code", &path]);
+        crate::utils::process::spawn(&mut cmd)
             .map_err(|e| format!("打开 VSCode 失败: {}。请确保 VSCode 已安装且 'code' 命令在 PATH 中", e))?;
         info!("[open_in_vscode] 完成");
         Ok(())
