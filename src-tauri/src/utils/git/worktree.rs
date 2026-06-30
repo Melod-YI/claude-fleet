@@ -187,7 +187,11 @@ pub fn create_worktree(opts: &CreateWorktreeOptions) -> Result<WorktreeInfo, Str
         return Err(format!("分支 \"{}\" 已存在，请更换分支名", opts.branch));
     }
     info!("[create_worktree] 创建新分支: {} from {}", opts.branch, opts.base_ref);
-    execute_git(&opts.repo_path, &["branch", &opts.branch, &opts.base_ref])
+    // 使用 --no-track：当 base_ref 是远程跟踪引用（如 upstream/master）时，git 默认会
+    // 自动把新分支配置为跟踪该远端（branch.<name>.remote=upstream），导致后续 `git push`
+    // 直接推到受保护的 upstream。worktree 分支应为独立本地分支，内容取自 base_ref 但不跟踪它，
+    // 后续由用户 `git push -u origin <branch>` 推送到 origin 再发起 MR。
+    execute_git(&opts.repo_path, &["branch", "--no-track", &opts.branch, &opts.base_ref])
         .map_err(|e| format!("创建分支失败: {}", e))?;
 
     // 7. 确保 worktree 根目录存在
@@ -375,5 +379,67 @@ branch refs/heads/main";
     fn parse_porcelain_empty_fails() {
         let result = parse_worktree_porcelain("");
         assert!(result.is_err());
+    }
+
+    /// 复现"从 upstream/master 创建 worktree 时 push 误推到 upstream"的根因：
+    /// 从远程跟踪引用创建分支时，git 默认自动设置上游跟踪，导致 `git push` 推到 upstream。
+    /// 修复后（--no-track）新分支不应跟踪任何远端，内容仍来自 base_ref。
+    #[test]
+    fn create_worktree_from_remote_ref_does_not_track_upstream() {
+        use crate::utils::git::get_current_branch;
+        use crate::utils::git::test_helpers::{init_repo, unique_temp_path};
+        use crate::utils::process::command;
+
+        // 1. 主仓库（含初始提交），获取其默认分支名（main 或 master，因 git 版本而异）
+        let main = init_repo("cwt-upstream");
+        let default = get_current_branch(&main).unwrap().0.unwrap();
+
+        // 2. 构造 bare 远端作为 upstream，推送默认分支并 fetch，建立 refs/remotes/upstream/<default>
+        let bare = unique_temp_path("cwt-upstream-bare");
+        let s = command("git")
+            .arg("init").arg("--bare").arg(&bare)
+            .status().unwrap();
+        assert!(s.success(), "git init --bare 失败");
+        let bare_str = bare.to_string_lossy().to_string();
+        command("git").arg("-C").arg(&main)
+            .args(["remote", "add", "upstream", bare_str.as_str()])
+            .status().unwrap();
+        command("git").arg("-C").arg(&main)
+            .args(["push", "upstream", default.as_str()])
+            .status().unwrap();
+        command("git").arg("-C").arg(&main)
+            .args(["fetch", "upstream"])
+            .status().unwrap();
+
+        // 3. 从 upstream/<default> 创建 worktree
+        let base_ref = format!("upstream/{}", default);
+        let opts = CreateWorktreeOptions {
+            repo_path: main.clone(),
+            name: "wt1".to_string(),
+            branch: "feat1".to_string(),
+            base_ref: base_ref.clone(),
+        };
+        let info = create_worktree(&opts).expect("创建 worktree 应成功");
+
+        // 4. 新分支不应设置上游跟踪（--no-track 生效）：upstream 字段应为空
+        let upstream_ref = execute_git(
+            &main,
+            &["for-each-ref", "--format=%(upstream)", "refs/heads/feat1"],
+        )
+        .unwrap();
+        assert!(
+            upstream_ref.is_empty(),
+            "新分支不应跟踪 upstream，实际 upstream={}", upstream_ref
+        );
+
+        // 5. 内容应来自 base_ref（worktree HEAD 等于 upstream/<default>）
+        let wt_head = execute_git(Path::new(&info.path), &["rev-parse", "HEAD"]).unwrap();
+        let base_head = execute_git(&main, &["rev-parse", &base_ref]).unwrap();
+        assert_eq!(wt_head, base_head, "worktree HEAD 应等于 base_ref 的 HEAD");
+
+        // 清理
+        let _ = std::fs::remove_dir_all(&info.path);
+        let _ = std::fs::remove_dir_all(&main);
+        let _ = std::fs::remove_dir_all(&bare);
     }
 }
