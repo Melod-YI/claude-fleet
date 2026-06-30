@@ -137,12 +137,21 @@ pub fn get_local_branches(repo_path: &Path) -> Result<Vec<String>, String> {
 }
 
 /// 获取远程分支列表
+///
+/// 使用 plumbing 命令 `for-each-ref` 取 `refs/remotes/` 下的完整 refname 再手动剥前缀，
+/// 而非 `git branch -r --format=%(refname:short)`。原因：后者会把符号引用
+/// `refs/remotes/<remote>/HEAD`（克隆时自动创建的远端默认分支指针）畸形格式化为
+/// 裸 remote 名（如 `origin/HEAD` → `origin`），且输出无 `->` 标记无法靠 `->` 过滤，
+/// 从而把一个并非分支的 `origin` 混进下拉列表。这里改用完整 refname 并显式过滤 `/HEAD`。
 pub fn get_remote_branches(repo_path: &Path) -> Result<Vec<String>, String> {
-    let output = execute_git(repo_path, &["branch", "-r", "--format=%(refname:short)"])?;
+    let output = execute_git(repo_path, &["for-each-ref", "--format=%(refname)", "refs/remotes/"])?;
     let branches: Vec<String> = output
         .lines()
-        .map(|l| l.trim().to_string())
-        .filter(|l| !l.is_empty() && !l.contains("->"))
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        // 跳过远端 HEAD 符号引用：它不是真实分支，保留会污染分支下拉列表
+        .filter(|l| !l.ends_with("/HEAD"))
+        .map(|l| l.strip_prefix("refs/remotes/").unwrap_or(l).to_string())
         .collect();
     info!("[get_remote_branches] 共 {} 个远程分支", branches.len());
     Ok(branches)
@@ -742,6 +751,53 @@ mod tests {
             remote_branches.iter().any(|b| b == "origin/main"),
             "fetch 后应能看到 origin/main，实际: {:?}",
             remote_branches
+        );
+
+        let _ = std::fs::remove_dir_all(&work);
+        let _ = std::fs::remove_dir_all(&remote);
+    }
+
+    #[test]
+    fn get_remote_branches_excludes_origin_head_symref() {
+        use crate::utils::git::test_helpers::{git, init_repo, unique_temp_path};
+
+        // 复现 refs/remotes/origin/HEAD 场景：git clone 会自动创建该符号引用。
+        // 这里用 remote add + push + set-head 模拟克隆结果，使 origin/HEAD 真实存在。
+        let remote = unique_temp_path("grb-bare");
+        let status = crate::utils::process::command("git")
+            .arg("init").arg("--bare").arg(&remote)
+            .status().expect("git init --bare 失败");
+        assert!(status.success(), "git init --bare 失败");
+
+        let work = init_repo("grb-work");
+        git(&work, &["branch", "-M", "main"]);
+        let remote_str = remote.to_string_lossy().to_string();
+        git(&work, &["remote", "add", "origin", remote_str.as_str()]);
+        git(&work, &["push", "origin", "main"]);
+        // 显式创建 origin/HEAD 符号引用（等价于克隆时 git 自动写入的远端默认分支指针）
+        git(&work, &["remote", "set-head", "origin", "main"]);
+
+        // 旧实现（branch -r --format=short）会把 origin/HEAD 畸形成裸 "origin"
+        // 确认符号引用确实存在，保证本测试有效
+        let head_ref = execute_git(&work, &["for-each-ref", "--format=%(refname)", "refs/remotes/origin/HEAD"]).unwrap();
+        assert!(head_ref.contains("refs/remotes/origin/HEAD"), "测试前置失败：origin/HEAD 未创建");
+
+        let branches = get_remote_branches(&work).expect("读取远程分支失败");
+
+        // 不应出现裸 "origin"（origin/HEAD 被畸形格式化的产物）
+        assert!(
+            !branches.iter().any(|b| b == "origin"),
+            "不应出现裸 remote 名 \"origin\"，实际: {:?}", branches
+        );
+        // 不应出现任何 /HEAD 条目
+        assert!(
+            !branches.iter().any(|b| b.ends_with("/HEAD")),
+            "不应包含 HEAD 符号引用，实际: {:?}", branches
+        );
+        // 真实远程分支仍应保留
+        assert!(
+            branches.iter().any(|b| b == "origin/main"),
+            "应包含 origin/main，实际: {:?}", branches
         );
 
         let _ = std::fs::remove_dir_all(&work);
