@@ -9,3 +9,4 @@ pub mod window_manager;
 pub mod launch;
 pub mod git;
 pub mod process;
+pub mod update_checker;
