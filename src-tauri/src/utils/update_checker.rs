@@ -11,7 +11,23 @@ use tracing::{info, warn};
 /// 输入形如 "0.8.2" 或 "v0.9.0"，按 major.minor.patch 数值比较。
 /// 解析失败时按字符串比较兜底。
 pub fn is_newer_version(current: &str, latest: &str) -> bool {
-    todo!("Task 2 实现")
+    fn parse(v: &str) -> Option<(u64, u64, u64)> {
+        let v = v.trim_start_matches('v').trim_start_matches('V');
+        let parts: Vec<&str> = v.split('.').collect();
+        if parts.len() != 3 {
+            return None;
+        }
+        Some((
+            parts[0].parse::<u64>().ok()?,
+            parts[1].parse::<u64>().ok()?,
+            parts[2].parse::<u64>().ok()?,
+        ))
+    }
+
+    match (parse(current), parse(latest)) {
+        (Some(c), Some(l)) => l > c,
+        _ => latest.trim_start_matches('v') > current.trim_start_matches('v'),
+    }
 }
 
 #[cfg(test)]
