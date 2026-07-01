@@ -10,7 +10,12 @@
   - 显示 session 状态（busy/idle/waiting）
   - 支持精简/详细模式切换
   - 显示最后输入和最近进展摘要
-- **一键跳转**: 快速切换到对应的终端窗口（WezTerm、cmd、PowerShell）
+- **一键跳转**: 快速切换到对应的终端窗口（WezTerm、cmd、PowerShell、PowerShell 7）
+
+- **Git worktree 管理**: 图形化管理仓库的 worktree
+  - 创建/列表/删除 worktree，跟踪常用仓库
+  - 显示分支领先/落后、未提交变更数
+  - 删除前安全预检（未提交变更、未合并提交）
 
 - **新建 session**: 选择工作目录和终端类型，启动新的 Claude Code
 ![新建 Session](docs/images/screenshot-new-session.png)
@@ -59,6 +64,13 @@
 ### 新建 session
 
 点击 "+" 按钮，选择工作目录和终端类型，启动新的 Claude Code。
+
+### 管理 worktree
+
+切换到 "Worktree" Tab：
+- 添加跟踪仓库后，列出该仓库下所有 worktree（含手动创建的未托管项）
+- 可创建 worktree（选择基点分支）、查看分支领先/落后与未提交变更
+- 删除前会进行安全预检，存在未提交变更或未合并提交时阻断
 
 ### 恢复 session
 
