@@ -7,7 +7,7 @@
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 use tracing::{info, warn};
 
 /// 对外暴露（前端 + 命令）的更新信息
@@ -41,7 +41,7 @@ static STATE: Lazy<Mutex<Option<UpdateInfo>>> = Lazy::new(|| Mutex::new(None));
 
 /// 解析 GitHub Releases API 的 JSON 响应。
 /// 若为预发布版本，返回 None。
-pub fn parse_latest_release(json: &str) -> Option<RawRelease> {
+fn parse_latest_release(json: &str) -> Option<RawRelease> {
     let raw: RawRelease = serde_json::from_str(json).ok()?;
     if raw.prerelease {
         return None;
