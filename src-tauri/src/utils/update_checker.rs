@@ -7,6 +7,7 @@
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 use std::sync::Mutex;
+use tauri::{AppHandle, Emitter, Manager};
 use tracing::{info, warn};
 
 /// 对外暴露（前端 + 命令）的更新信息
@@ -151,4 +152,98 @@ mod tests {
     fn parse_invalid_json_returns_none() {
         assert!(parse_latest_release("not json").is_none());
     }
+}
+
+/// 获取当前应用版本字符串（如 "0.8.2"）。
+fn current_version(app: &AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
+/// 请求 GitHub，比较版本，更新全局状态。
+/// 发现新版本时 emit("update_available", UpdateInfo)。
+/// 任何错误只 warn 日志，不影响应用。
+pub async fn check_for_updates(app: AppHandle) {
+    let version = current_version(&app);
+    let user_agent = format!("claude-fleet/{}", version);
+    info!("[update_checker] 开始检查更新，当前版本: {}", version);
+
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let resp = ureq::get(RELEASES_API)
+            .set("User-Agent", &user_agent)
+            .call()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        let body = resp.into_string()?;
+        let raw = parse_latest_release(&body)
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "无正式 release"))?;
+        Ok::<_, std::io::Error>(raw)
+    })
+    .await;
+
+    let raw = match result {
+        Ok(Ok(raw)) => raw,
+        Ok(Err(e)) => {
+            warn!("[update_checker] 检查失败: {}", e);
+            return;
+        }
+        Err(e) => {
+            warn!("[update_checker] 检查任务异常: {}", e);
+            return;
+        }
+    };
+
+    let latest_version = raw.tag_name.trim_start_matches('v').to_string();
+
+    if !is_newer_version(&version, &latest_version) {
+        info!("[update_checker] 当前已是最新: {}", version);
+        // 当前版本不落后：清除状态（例如用户升级后首次运行）
+        if let Ok(mut st) = STATE.lock() {
+            *st = None;
+        }
+        return;
+    }
+
+    let info = UpdateInfo {
+        latest_version: latest_version.clone(),
+        release_url: raw.html_url,
+        release_notes: raw.body,
+        published_at: raw.published_at,
+    };
+    info!("[update_checker] 发现新版本: {}", latest_version);
+
+    if let Ok(mut st) = STATE.lock() {
+        *st = Some(info.clone());
+    }
+    if let Err(e) = app.emit("update_available", &info) {
+        warn!("[update_checker] 发送 update_available 事件失败: {}", e);
+    }
+}
+
+/// 读取当前更新状态（供命令层调用）。
+pub fn get_status() -> Option<UpdateInfo> {
+    STATE.lock().ok().and_then(|st| st.clone())
+}
+
+/// 启动后台更新检测循环：启动后延迟 10s 检查一次，之后每 6h 检查一次。
+/// 在 setup() 中调用。
+pub fn start_update_loop(app: AppHandle) {
+    info!("[update_checker] 启动更新检测循环，间隔 6h");
+    tauri::async_runtime::spawn(async move {
+        // 启动后延迟 10s，避免与初始化抢资源
+        tauri::async_runtime::spawn_blocking(|| {
+            std::thread::sleep(std::time::Duration::from_secs(10));
+        })
+        .await
+        .ok();
+
+        loop {
+            check_for_updates(app.clone()).await;
+
+            // 每 6 小时检查一次
+            tauri::async_runtime::spawn_blocking(|| {
+                std::thread::sleep(std::time::Duration::from_secs(6 * 60 * 60));
+            })
+            .await
+            .ok();
+        }
+    });
 }
