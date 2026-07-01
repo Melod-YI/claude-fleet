@@ -3,7 +3,7 @@ import { AppLayout } from "@/components/layout"
 import { RunningTab } from "@/components/running"
 import { ManagementTab } from "@/components/management"
 import { WorktreeTab } from "@/components/worktree"
-import { useNotification } from "@/hooks"
+import { useNotification, useUpdateChecker } from "@/hooks"
 import { ErrorBoundary } from "@/components/common"
 import { useFavoriteStore, useSettingsStore } from '@/stores'
 import { needsMigration, addFavorite, setSetting, recordPathUsage } from '@/services/dbService'
@@ -72,6 +72,9 @@ function App() {
 
   // 使用通知 hook
   useNotification()
+
+  // 更新检测 hook
+  useUpdateChecker()
 
   // 初始化应用：迁移数据 + 并行加载 stores
   useEffect(() => {

@@ -25,6 +25,7 @@ use commands::session_commands::{
 use commands::terminal::{jump_to_terminal, jump_to_terminal_by_pid, smart_jump_to_terminal, resume_in_terminal, launch_session, open_directory, open_in_vscode};
 use commands::sound::{get_available_sounds, get_sound_data};
 use commands::worktree::{create_worktree_cmd, list_worktrees_cmd, get_repo_info_cmd, fetch_repo_remotes_cmd, delete_worktree_cmd, preflight_delete_worktree_cmd, count_worktrees_cmd};
+use commands::update::{get_update_status, open_release_page};
 // 数据库命令
 use db::sessions_meta::{set_session_name_cmd, get_session_name_cmd, delete_session_name_cmd};
 use db::favorites::{add_favorite_cmd, remove_favorite_cmd, is_favorite_cmd, get_all_favorites_cmd};
@@ -101,6 +102,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         let elapsed = poll_start.elapsed();
         info!("[setup] 定时轮询服务启动成功，耗时: {}ms", elapsed.as_millis());
     }
+
+    // 启动 GitHub 更新检测循环
+    info!("[setup] 步骤4: 启动更新检测循环");
+    utils::update_checker::start_update_loop(app_handle.clone());
 
     let elapsed = start.elapsed();
     info!("[setup] 应用启动初始化完成，总耗时: {}ms", elapsed.as_millis());
@@ -179,6 +184,9 @@ pub fn run() {
             add_tracked_repo_cmd,
             remove_tracked_repo_cmd,
             list_tracked_repos_cmd,
+            // Update check commands
+            get_update_status,
+            open_release_page,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
