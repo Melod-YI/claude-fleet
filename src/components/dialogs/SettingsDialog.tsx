@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
+import { invoke } from '@tauri-apps/api/core'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useUpdateStore } from '@/stores'
 import type { TerminalType, SoundInfo } from '@/types'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
@@ -19,7 +21,7 @@ import {
 } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { getAvailableSounds, previewSound, BUILTIN_DEFAULT_ID } from '@/services/soundService'
-import { Volume2, AlertCircle } from 'lucide-react'
+import { Volume2, AlertCircle, Download } from 'lucide-react'
 
 interface SettingsDialogProps {
   open: boolean
@@ -46,6 +48,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     notificationSoundFile,
     setNotificationSoundFile,
   } = useSettingsStore()
+
+  const updateInfo = useUpdateStore((s) => s.updateInfo)
 
   const [sounds, setSounds] = useState<SoundInfo[]>([])
   const [loadingSounds, setLoadingSounds] = useState(true)
@@ -135,6 +139,34 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         <DialogHeader>
           <DialogTitle>设置</DialogTitle>
         </DialogHeader>
+
+        {updateInfo && (
+          <div className="rounded-md border border-blue-500/40 bg-blue-500/5 p-3 space-y-2">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Download className="h-4 w-4 text-blue-500" />
+              <span>发现新版本 v{updateInfo.latestVersion}</span>
+              <span className="text-xs text-muted-foreground">
+                {new Date(updateInfo.publishedAt).toLocaleDateString('zh-CN')}
+              </span>
+            </div>
+            {updateInfo.releaseNotes && (
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-xs text-muted-foreground bg-muted/50 p-2 rounded">
+                {updateInfo.releaseNotes}
+              </pre>
+            )}
+            <Button
+              size="sm"
+              onClick={() =>
+                invoke('open_release_page', { url: updateInfo.releaseUrl }).catch((e) =>
+                  console.error('[SettingsDialog] 打开下载页失败:', e)
+                )
+              }
+            >
+              <Download className="h-4 w-4 mr-1" />
+              前往下载
+            </Button>
+          </div>
+        )}
 
         <div className="flex rounded-md border bg-muted/40 p-1">
           <button

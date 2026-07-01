@@ -3,6 +3,7 @@ import { Settings } from 'lucide-react'
 import { TabHeader } from "./TabHeader"
 import { SettingsDialog } from "@/components/dialogs"
 import { Button } from "@/components/ui/button"
+import { useUpdateStore } from "@/stores"
 
 interface AppLayoutProps {
   children: React.ReactNode
@@ -18,6 +19,7 @@ const TABS = [
 
 export function AppLayout({ children, activeTab, onTabChange }: AppLayoutProps) {
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const hasUpdate = useUpdateStore((s) => s.updateInfo !== null)
 
   return (
     <div className="flex flex-col h-screen bg-background">
@@ -25,14 +27,22 @@ export function AppLayout({ children, activeTab, onTabChange }: AppLayoutProps) 
         <h1 className="text-lg font-semibold whitespace-nowrap">Claude Fleet</h1>
         <TabHeader tabs={TABS} activeTab={activeTab} onTabChange={onTabChange} />
         <div className="ml-auto flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setSettingsOpen(true)}
-            title="设置"
-          >
-            <Settings className="h-4 w-4" />
-          </Button>
+          <div className="relative">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setSettingsOpen(true)}
+              title="设置"
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
+            {hasUpdate && (
+              <span
+                className="absolute top-1 right-1 h-2 w-2 rounded-full bg-red-500"
+                title="发现新版本"
+              />
+            )}
+          </div>
         </div>
       </header>
       <main className="flex-1 overflow-hidden">
