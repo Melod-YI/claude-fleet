@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import {
   setSetting,
+  deleteSetting,
   getAllSettings,
   recordPathUsage,
   removeFavoritePath,
@@ -27,7 +28,6 @@ interface SettingsState extends AppSettings {
   setTheme: (theme: 'light' | 'dark' | 'system') => Promise<void>
   setTerminalType: (type: TerminalType) => Promise<void>
   setLaunchSettings: (settings: LaunchSettings) => Promise<void>
-  setLastBaseRef: (ref: string) => Promise<void>
   getSortedFavoritePaths: () => FavoritePath[]
 }
 
@@ -40,7 +40,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   theme: 'system',
   terminalType: 'wezterm',
   launchSettings: createDefaultLaunchSettings('wezterm'),
-  lastBaseRef: '',
 }
 
 export const useSettingsStore = create<SettingsState>()((set, get) => ({
@@ -75,8 +74,11 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
       const terminalId = parsed.terminalType ?? DEFAULT_SETTINGS.terminalType
       parsed.launchSettings = parseLaunchSettings(settings['launchSettings'], terminalId)
 
-      if (settings['lastBaseRef']) {
-        parsed.lastBaseRef = settings['lastBaseRef']
+      // 清除已废弃的全局 lastBaseRef（改为按仓库记忆，见 CreateWorktreeDialog）
+      if (settings['lastBaseRef'] !== undefined) {
+        await deleteSetting('lastBaseRef').catch((e) => {
+          console.error('清除旧 lastBaseRef 失败:', e)
+        })
       }
 
       const paths = await getSortedFavoritePaths()
@@ -156,11 +158,6 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     set({ launchSettings: settings, terminalType })
   },
 
-  setLastBaseRef: async (ref) => {
-    await setSetting('lastBaseRef', ref)
-    set({ lastBaseRef: ref })
-  },
-
   getSortedFavoritePaths: () => {
     return get().favoritePaths.paths
   },
@@ -173,7 +170,7 @@ function isTerminalType(value: string): value is TerminalType {
 /**
  * 标准化路径（去除末尾斜杠、统一大小写等）
  */
-function normalizePath(path: string): string {
+export function normalizePath(path: string): string {
   let normalized = path.trim()
   // Windows 路径：去除末尾的 \ 或 /
   if (normalized.length > 3) {

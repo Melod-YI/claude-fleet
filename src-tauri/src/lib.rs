@@ -30,7 +30,7 @@ use commands::update::{get_update_status, open_release_page};
 use db::sessions_meta::{set_session_name_cmd, get_session_name_cmd, delete_session_name_cmd};
 use db::favorites::{add_favorite_cmd, remove_favorite_cmd, is_favorite_cmd, get_all_favorites_cmd};
 use db::favorite_paths::{record_path_usage_cmd, remove_favorite_path_cmd, get_sorted_favorite_paths_cmd, toggle_pin_path_cmd};
-use db::settings::{get_setting_cmd, set_setting_cmd, get_all_settings_cmd};
+use db::settings::{get_setting_cmd, set_setting_cmd, get_all_settings_cmd, delete_setting_cmd};
 use db::migration::needs_migration_cmd;
 use db::tracked_repos::{add_tracked_repo_cmd, remove_tracked_repo_cmd, list_tracked_repos_cmd};
 use tracing::{info, error};
@@ -171,6 +171,7 @@ pub fn run() {
             get_setting_cmd,
             set_setting_cmd,
             get_all_settings_cmd,
+            delete_setting_cmd,
             needs_migration_cmd,
             // Worktree commands
             create_worktree_cmd,

@@ -72,6 +72,10 @@ export async function getAllSettings(): Promise<Record<string, string>> {
   return await invoke('get_all_settings_cmd')
 }
 
+export async function deleteSetting(key: string): Promise<void> {
+  await invoke('delete_setting_cmd', { key })
+}
+
 // ========== Migration ==========
 
 export async function needsMigration(): Promise<boolean> {

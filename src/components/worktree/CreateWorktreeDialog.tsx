@@ -20,7 +20,8 @@ import { cn } from "@/lib/utils"
 import { Loader2, ChevronDown, ChevronRight, RefreshCw } from "lucide-react"
 import { useRepoInfoQuery } from "@/lib/query/worktreeQueries"
 import { useCreateWorktreeMutation, useFetchRepoRemotesMutation } from "@/lib/query/worktreeMutations"
-import { useSettingsStore } from "@/stores/settingsStore"
+import { getSetting, setSetting } from "@/services/dbService"
+import { normalizePath } from "@/stores/settingsStore"
 import type { WorktreeInfo } from "@/types"
 
 interface CreateWorktreeDialogProps {
@@ -32,6 +33,9 @@ interface CreateWorktreeDialogProps {
 
 // Windows 路径非法字符
 const ILLEGAL_CHARS = /[\\/:*?"<>|]/
+
+// 按仓库记忆上次选择的 baseRef 的 setting key
+const baseRefKey = (repoPath: string) => `worktree.baseRef.${normalizePath(repoPath)}`
 
 export function CreateWorktreeDialog({
   open,
@@ -52,21 +56,25 @@ export function CreateWorktreeDialog({
   const createMutation = useCreateWorktreeMutation()
   const fetchMutation = useFetchRepoRemotesMutation()
   const [fetchError, setFetchError] = useState<string | null>(null)
-  const lastBaseRef = useSettingsStore((s) => s.lastBaseRef)
-  const setLastBaseRef = useSettingsStore((s) => s.setLastBaseRef)
 
   // Reset state when dialog opens
   useEffect(() => {
-    if (open) {
-      setName("")
-      setShowAdvanced(false)
-      setCustomBranch("")
-      setBranchSearch("")
-      setFetchError(null)
-      // Restore last selected baseRef from settings store
-      setBaseRef(lastBaseRef)
-    }
-  }, [open, lastBaseRef])
+    if (!open) return
+    setName("")
+    setShowAdvanced(false)
+    setCustomBranch("")
+    setBranchSearch("")
+    setFetchError(null)
+    setBaseRef("")
+    // 按仓库恢复上次选择的 baseRef（异步加载，加载后由 repoInfo effect 校验有效性）
+    let cancelled = false
+    getSetting(baseRefKey(repoPath))
+      .then((saved) => {
+        if (!cancelled && saved) setBaseRef(saved)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [open, repoPath])
 
   // Set default baseRef when repoInfo loads (only if not already set or saved value invalid)
   useEffect(() => {
@@ -113,9 +121,9 @@ export function CreateWorktreeDialog({
     if (!name.trim()) return
 
     try {
-      // Persist the selected baseRef for next time
+      // Persist the selected baseRef for this repo (next time)
       if (effectiveBaseRef) {
-        setLastBaseRef(effectiveBaseRef)
+        setSetting(baseRefKey(repoPath), effectiveBaseRef).catch(() => {})
       }
       const result = await createMutation.mutateAsync({
         repoPath,

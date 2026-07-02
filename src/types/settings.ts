@@ -41,7 +41,6 @@ export interface AppSettings {
   theme: 'light' | 'dark' | 'system'
   terminalType: TerminalType
   launchSettings: LaunchSettings
-  lastBaseRef: string  // 上次创建 worktree 选择的基准分支
 }
 
 export function createDefaultLaunchSettings(terminalId: string = 'wezterm'): LaunchSettings {
