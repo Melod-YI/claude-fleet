@@ -2,17 +2,17 @@
 
 本文档记录 Claude Fleet 当前版本的已知限制和问题。
 
-## 1. Windows Terminal 不受支持
+## 1. Windows Terminal 跳转支持
 
-**状态**：暂不支持
+**状态**：✅ 已支持（v0.8.3，方案见 `docs/2026-07-20-windows-terminal-jump-design.md`）
 
-**原因**：技术限制
+**原理**：Windows Terminal 所有 tab 共用同一个 `WindowsTerminal.exe` 进程，原"从 claude PID 逐层向上找持有窗口的父进程"的思路只能命中 WT 主进程，无法区分具体 tab。现改用 `AttachConsole(claude_pid) + GetConsoleWindow()` 直接拿到该 tab 对应的不可见 pseudo-console 宿主窗口（per-tab 唯一），再 `SetForegroundWindow` 该 HWND，WT v1.14+ 会把操作传播到真实主窗口并切到正确 tab。
 
-在 Windows 环境下，无法实现跳转到 Windows Terminal 的指定窗口。原因是所有 Windows Terminal 窗口共用同一个进程 PID，从 Claude 进程的 PID 出发无法定位到具体的窗口信息。
+**非 WT 终端不受影响**：cmd / PowerShell / WezTerm / Git Bash 仍走原父链逻辑（实现里通过 owner 进程名识别 WindowsTerminal，仅 WT 走新路径）。
 
-**解决方案**：暂无。在获得更好的解决方式前，所有情况都不考虑使用 Windows Terminal。
+**前置要求**：Windows Terminal ≥ 1.14（2022 年起所有正式版均满足）。提权场景（claude 以管理员起、Claude Fleet 以普通用户起）下 `AttachConsole` 会被拒绝，回退父链（仅激活主窗口、不切 tab）。
 
-**替代方案**：使用 WezTerm、cmd 或 PowerShell 作为终端。
+**替代方案**：仍可使用 WezTerm、cmd 或 PowerShell 作为终端。
 
 ---
 

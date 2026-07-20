@@ -164,7 +164,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
 }))
 
 function isTerminalType(value: string): value is TerminalType {
-  return value === 'wezterm' || value === 'cmd' || value === 'powershell' || value === 'powershell7'
+  return value === 'wezterm' || value === 'cmd' || value === 'powershell' || value === 'powershell7' || value === 'windows-terminal'
 }
 
 /**

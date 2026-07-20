@@ -176,7 +176,7 @@ db/ 下的命令（同样注册为 Tauri 命令）：favorites(4)、favorite_pat
 
 终端跳转仅支持 Windows（`#[cfg(target_os = "windows")]`），非 Windows 返回错误。
 
-支持 4 种终端类型：
+支持 5 种终端类型：
 
 | 终端 | 命令 | 创建标志 |
 |---|---|---|
@@ -184,8 +184,11 @@ db/ 下的命令（同样注册为 Tauri 命令）：favorites(4)、favorite_pat
 | powershell | `powershell.exe -Command "{command_line}"` + `current_dir(cwd)` | `CREATE_NEW_CONSOLE` (0x10) |
 | powershell7 | `pwsh.exe -Command "{command_line}"` + `current_dir(cwd)` | `CREATE_NEW_CONSOLE` (0x10) |
 | wezterm | `wezterm.exe start --cwd {cwd} -e {process_argv}` | `DETACHED_PROCESS` (0x08) |
+| windows-terminal | `wt.exe -d {cwd} cmd /K "{command_line}"`（依赖 `-d` 设 cwd，`current_dir=None`） | `DETACHED_PROCESS` (0x08) |
 
 **重要**：`start` 命令会短暂显示窗口，**不要使用**。
+
+**Windows Terminal 跳转**：WT 单进程持多 tab，父链查找无法定位 tab。`utils/window_manager.rs` 的 `find_window_by_console_attach` 用 `AttachConsole(pid)+GetConsoleWindow()` 拿到 per-tab 的 pseudo-console 宿主窗口（不可见，owner 进程名为 `WindowsTerminal.exe` 时才采用，否则回退父链，保证 cmd/ps/wezterm/git-bash 行为不变），`activate_console_window` 对该 pseudo HWND 调 `SetForegroundWindow`，WT v1.14+ 传播到主窗口并切到正确 tab。attach 序列操作进程级 console 状态，由 `CONSOLE_ATTACH_MUTEX` 串行化。
 
 **后台命令**（git、tasklist、wmic、code 等）统一使用 `crate::utils::process::command()` 创建，自动在 Windows 上添加 `CREATE_NO_WINDOW` (0x08000000) 标志：
 

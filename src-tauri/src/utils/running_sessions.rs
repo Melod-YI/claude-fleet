@@ -16,6 +16,7 @@ use crate::utils::window_manager::{
     populate_window_cache_parallel,
     get_cached_window_title,
     get_cached_window,
+    is_cached_console_window,
     clear_window_cache,
     invalidate_window_cache,
 };
@@ -594,6 +595,12 @@ pub fn refresh_session_names() {
     let mut uncached_pids: Vec<u32> = Vec::new();
 
     for &pid in &pids {
+        // Windows Terminal 的 pseudo console 窗口无标题，且父链会拿到 WT 主窗口标题
+        // （反映当前活动 tab，随切换抖动），直接用文件夹名，跳过父链标题查询
+        if is_cached_console_window(pid) {
+            titles.insert(pid, None);
+            continue;
+        }
         match get_cached_window_title(pid) {
             Some(title) => { titles.insert(pid, Some(title)); }
             None => { uncached_pids.push(pid); }

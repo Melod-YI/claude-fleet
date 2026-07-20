@@ -33,6 +33,7 @@ const TERMINAL_OPTIONS: { value: TerminalType; label: string }[] = [
   { value: 'cmd', label: '命令提示符' },
   { value: 'powershell', label: 'PowerShell' },
   { value: 'powershell7', label: 'PowerShell 7' },
+  { value: 'windows-terminal', label: 'Windows Terminal' },
 ]
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {

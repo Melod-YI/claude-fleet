@@ -1,4 +1,4 @@
-export type TerminalType = 'wezterm' | 'cmd' | 'powershell' | 'powershell7'
+export type TerminalType = 'wezterm' | 'cmd' | 'powershell' | 'powershell7' | 'windows-terminal'
 
 export interface CommandWrapperSettings {
   enabled: boolean

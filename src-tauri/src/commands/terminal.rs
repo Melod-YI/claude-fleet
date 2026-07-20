@@ -1,8 +1,9 @@
 use std::process::Command;
 use crate::utils::window_manager::{
     find_terminal_window,
-    find_window_by_pid_chain,
     activate_window,
+    activate_console_window,
+    is_cached_console_window,
 };
 use crate::utils::launch::{
     launch_session as run_launch_session,
@@ -51,19 +52,25 @@ pub fn jump_to_terminal_by_pid(process_id: u32) -> Result<(), String> {
         // 快速路径：从缓存获取 HWND（微秒级验证）
         if let Some(hwnd) = get_cached_window(process_id) {
             info!("[jump_to_terminal_by_pid] 缓存命中，pid={}", process_id);
-            activate_window(hwnd)?;
+            if is_cached_console_window(process_id) {
+                activate_console_window(hwnd)?;
+            } else {
+                activate_window(hwnd)?;
+            }
             info!("[jump_to_terminal_by_pid] 完成（缓存命中）");
             return Ok(());
         }
 
-        // 慢速路径：缓存未命中，执行完整的 PID 链查找
-        debug!("[jump_to_terminal_by_pid] 缓存未命中，执行 PID 链查找");
-        if let Some(hwnd) = find_window_by_pid_chain(process_id) {
-            // 顺便更新缓存，下次跳转可直接命中
-            let _ = resolve_and_cache_window(process_id);
+        // 慢速路径：缓存未命中，统一解析并写缓存（优先 attach 快路径，回退父链）
+        debug!("[jump_to_terminal_by_pid] 缓存未命中，执行窗口解析");
+        if let Some(hwnd) = resolve_and_cache_window(process_id) {
             info!("[jump_to_terminal_by_pid] 找到窗口，激活");
-            activate_window(hwnd)?;
-            info!("[jump_to_terminal_by_pid] 完成（PID 链查找）");
+            if is_cached_console_window(process_id) {
+                activate_console_window(hwnd)?;
+            } else {
+                activate_window(hwnd)?;
+            }
+            info!("[jump_to_terminal_by_pid] 完成（窗口解析）");
             Ok(())
         } else {
             warn!("[jump_to_terminal_by_pid] 未找到进程 {} 或其父进程对应的终端窗口", process_id);
@@ -94,22 +101,28 @@ pub fn smart_jump_to_terminal(working_directory: String, process_id: Option<u32>
                 // 快速路径：从缓存获取 HWND（微秒级验证）
                 if let Some(hwnd) = get_cached_window(pid) {
                     info!("[smart_jump_to_terminal] 缓存命中，pid={}", pid);
-                    activate_window(hwnd)?;
+                    if is_cached_console_window(pid) {
+                        activate_console_window(hwnd)?;
+                    } else {
+                        activate_window(hwnd)?;
+                    }
                     info!("[smart_jump_to_terminal] 完成（缓存命中）");
                     return Ok(());
                 }
 
-                // 慢速路径：缓存未命中，执行完整的 PID 链查找
-                info!("[smart_jump_to_terminal] 缓存未命中，执行 PID 链查找: {}", pid);
-                if let Some(hwnd) = find_window_by_pid_chain(pid) {
-                    // 顺便更新缓存，下次跳转可直接命中
-                    let _ = resolve_and_cache_window(pid);
-                    info!("[smart_jump_to_terminal] PID 链查找成功，激活窗口");
-                    activate_window(hwnd)?;
-                    info!("[smart_jump_to_terminal] 完成（通过 PID 链）");
+                // 慢速路径：缓存未命中，统一解析并写缓存（优先 attach 快路径，回退父链）
+                info!("[smart_jump_to_terminal] 缓存未命中，执行窗口解析: {}", pid);
+                if let Some(hwnd) = resolve_and_cache_window(pid) {
+                    info!("[smart_jump_to_terminal] 窗口解析成功，激活");
+                    if is_cached_console_window(pid) {
+                        activate_console_window(hwnd)?;
+                    } else {
+                        activate_window(hwnd)?;
+                    }
+                    info!("[smart_jump_to_terminal] 完成（窗口解析）");
                     return Ok(());
                 }
-                warn!("[smart_jump_to_terminal] PID {} 链查找失败，未找到窗口", pid);
+                warn!("[smart_jump_to_terminal] PID {} 解析失败，未找到窗口", pid);
                 return Err(format!("未找到进程 {} 或其父进程对应的终端窗口", pid));
             } else {
                 warn!("[smart_jump_to_terminal] PID 为 0，无法查找");
