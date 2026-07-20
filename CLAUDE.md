@@ -176,7 +176,7 @@ db/ 下的命令（同样注册为 Tauri 命令）：favorites(4)、favorite_pat
 
 终端跳转仅支持 Windows（`#[cfg(target_os = "windows")]`），非 Windows 返回错误。
 
-支持 5 种终端类型：
+支持 4 种终端类型：
 
 | 终端 | 命令 | 创建标志 |
 |---|---|---|
@@ -184,7 +184,8 @@ db/ 下的命令（同样注册为 Tauri 命令）：favorites(4)、favorite_pat
 | powershell | `powershell.exe -Command "{command_line}"` + `current_dir(cwd)` | `CREATE_NEW_CONSOLE` (0x10) |
 | powershell7 | `pwsh.exe -Command "{command_line}"` + `current_dir(cwd)` | `CREATE_NEW_CONSOLE` (0x10) |
 | wezterm | `wezterm.exe start --cwd {cwd} -e {process_argv}` | `DETACHED_PROCESS` (0x08) |
-| windows-terminal | `wt.exe -d {cwd} cmd /K "{command_line}"`（依赖 `-d` 设 cwd，`current_dir=None`） | `DETACHED_PROCESS` (0x08) |
+
+Windows Terminal 不作为独立终端类型：用户若想用 WT，在 Windows 系统设置中将"默认终端应用程序"设为 Windows Terminal，启动 cmd/powershell 即由 Windows 路由到 WT。
 
 **重要**：`start` 命令会短暂显示窗口，**不要使用**。
 
@@ -205,7 +206,7 @@ let output = Command::new("tasklist").args(["/FI", "PID eq 1234"]).output()?;
 
 **CommandWrapper 限制**：当 `terminal_id == "wezterm"` 时，`build_process_argv()` 会强制跳过 wrapper（如 ccglass），因兼容性问题。
 
-Launch 系统（`utils/launch/mod.rs`）支持可配置的启动参数，包括终端类型、Claude 可执行文件路径、额外参数、命令包装器。
+Launch 系统（`utils/launch/mod.rs`）支持可配置的启动参数，包括终端类型、Claude 可执行文件路径、额外参数、命令包装器、启动后窗口最大化（`maximize_window`：后台轮询定位 spawn 出的终端进程窗口并 `ShowWindow(SW_MAXIMIZE)`，cmd/ps/ps7/wezterm 通用，详见 `window_manager.rs::maximize_terminal_window`）。
 
 ## Git Worktree 管理
 

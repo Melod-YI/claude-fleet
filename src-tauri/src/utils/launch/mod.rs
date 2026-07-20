@@ -8,6 +8,9 @@ pub struct LaunchSettings {
     pub claude_executable: String,
     pub claude_args: Vec<String>,
     pub wrapper: Option<CommandWrapper>,
+    /// 启动终端后是否将窗口最大化（新建/恢复均生效）。前端旧数据无此字段时默认 false。
+    #[serde(default)]
+    pub maximize_window: bool,
 }
 
 impl LaunchSettings {
@@ -20,6 +23,7 @@ impl LaunchSettings {
                 "bypassPermissions".to_string(),
             ],
             wrapper: None,
+            maximize_window: false,
         }
     }
 }
@@ -157,35 +161,29 @@ pub fn build_spawn_plan(request: &LaunchRequest) -> Result<SpawnPlan, String> {
             current_dir: Some(request.working_directory.clone()),
             creation_flags: Some(CREATE_NEW_CONSOLE),
         }),
-        "windows-terminal" => Ok(SpawnPlan {
-            command: "wt.exe".to_string(),
-            args: {
-                // wt.exe -d <cwd> cmd /K "<quoted cmdline>"
-                // 用 cmd /K 包裹 claude，行为与 cmd 终端类型一致（claude 退出后 tab 保留）。
-                // -d 等价 --cwd，作为 tab 内 cmd 的起始目录；current_dir 故意不设，
-                // 依赖 -d（与 wezterm 同模式）。wt.exe 走 WindowsApps App Execution Alias 解析。
-                let mut v = vec![
-                    "-d".to_string(),
-                    request.working_directory.clone(),
-                    "cmd".to_string(),
-                    "/K".to_string(),
-                ];
-                v.push(command_line(&process_argv));
-                v
-            },
-            current_dir: None,
-            creation_flags: Some(DETACHED_PROCESS),
-        }),
         other => Err(format!("不支持的终端类型: {}", other)),
     }
 }
 
 pub fn launch_session(request: &LaunchRequest) -> Result<(), String> {
     let plan = build_spawn_plan(request)?;
-    spawn_plan(&plan)
+    let child = spawn_plan(&plan)?;
+
+    if request.settings.maximize_window {
+        let pid = child.id();
+        tracing::info!("[launch_session] maximize_window=true，后台最大化终端窗口 pid={}", pid);
+        // 后台轮询定位并最大化，不阻塞启动返回；丢 child 不影响终端进程存活
+        std::thread::spawn(move || {
+            if let Err(e) = crate::utils::window_manager::maximize_terminal_window(pid) {
+                tracing::warn!("[launch_session] 最大化终端窗口失败 pid={}: {}", pid, e);
+            }
+        });
+    }
+
+    Ok(())
 }
 
-pub fn spawn_plan(plan: &SpawnPlan) -> Result<(), String> {
+pub fn spawn_plan(plan: &SpawnPlan) -> Result<std::process::Child, String> {
     let mut command = Command::new(&plan.command);
     command.args(&plan.args);
 
@@ -200,7 +198,6 @@ pub fn spawn_plan(plan: &SpawnPlan) -> Result<(), String> {
     }
 
     crate::utils::process::spawn(&mut command)
-        .map(|_| ())
         .map_err(|e| format!("启动终端失败: {}", e))
 }
 
@@ -239,6 +236,7 @@ mod tests {
                 "bypassPermissions".to_string(),
             ],
             wrapper: None,
+            maximize_window: false,
         }
     }
 
@@ -444,7 +442,8 @@ mod tests {
     }
 
     #[test]
-    fn terminal_registry_builds_windows_terminal_spawn_plan() {
+    fn windows_terminal_rejected_as_terminal_type() {
+        // windows-terminal 选项已移除：交由 Windows 默认终端决定，不再专门启动 wt.exe
         let request = LaunchRequest {
             working_directory: "C:\\workspace\\project".to_string(),
             mode: LaunchMode::Resume {
@@ -453,46 +452,8 @@ mod tests {
             settings: default_settings("windows-terminal"),
         };
 
-        let plan = build_spawn_plan(&request).unwrap();
-
-        assert_eq!(plan.command, "wt.exe");
-        // -d <cwd> cmd /K "<cmdline>"
-        assert_eq!(plan.args[0], "-d");
-        assert_eq!(plan.args[1], "C:\\workspace\\project");
-        assert_eq!(plan.args[2], "cmd");
-        assert_eq!(plan.args[3], "/K");
-        assert_eq!(
-            plan.args[4],
-            "claude --resume session-123 --permission-mode bypassPermissions"
-        );
-        // current_dir 故意 None：依赖 -d（与 wezterm 同模式）
-        assert_eq!(plan.current_dir, None);
-        // DETACHED_PROCESS
-        assert_eq!(plan.creation_flags, Some(0x00000008));
-    }
-
-    #[test]
-    fn windows_terminal_does_not_skip_wrapper() {
-        // 与 wezterm 相反：WT 走 cmd /K，可正常容纳 wrapper（如 ccglass）
-        let mut settings = default_settings("windows-terminal");
-        settings.wrapper = Some(CommandWrapper {
-            enabled: true,
-            executable: "ccglass".to_string(),
-            args_before_agent: vec!["--some-flag".to_string()],
-        });
-        let request = LaunchRequest {
-            working_directory: "C:\\workspace\\project".to_string(),
-            mode: LaunchMode::New {
-                name: Some("demo".to_string()),
-            },
-            settings,
-        };
-
-        let plan = build_spawn_plan(&request).unwrap();
-        // cmd /K 的命令行应包含 ccglass（wrapper 未被跳过）
-        let cmdline = plan.args.last().unwrap();
-        assert!(cmdline.contains("ccglass"), "WT 应保留 wrapper，cmdline={}", cmdline);
-        assert!(cmdline.contains("claude"), "cmdline={}", cmdline);
+        let result = build_spawn_plan(&request);
+        assert!(result.is_err(), "windows-terminal 应被拒绝");
     }
 
     #[test]
@@ -507,8 +468,37 @@ mod tests {
                     "bypassPermissions".to_string(),
                 ],
                 wrapper: None,
+                maximize_window: false,
             }
         );
+    }
+
+    #[test]
+    fn launch_settings_defaults_maximize_window_when_absent() {
+        // 前端旧数据不含 maximizeWindow，应反序列化为 false（#[serde(default)]）
+        let json = r#"{
+            "terminalId": "cmd",
+            "claudeExecutable": "claude",
+            "claudeArgs": ["--permission-mode", "bypassPermissions"],
+            "wrapper": null
+        }"#;
+
+        let settings: LaunchSettings = serde_json::from_str(json).unwrap();
+        assert!(!settings.maximize_window);
+    }
+
+    #[test]
+    fn launch_settings_reads_maximize_window_true() {
+        let json = r#"{
+            "terminalId": "wezterm",
+            "claudeExecutable": "claude",
+            "claudeArgs": [],
+            "wrapper": null,
+            "maximizeWindow": true
+        }"#;
+
+        let settings: LaunchSettings = serde_json::from_str(json).unwrap();
+        assert!(settings.maximize_window);
     }
 
     #[test]

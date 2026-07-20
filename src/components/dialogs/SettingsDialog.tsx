@@ -33,7 +33,6 @@ const TERMINAL_OPTIONS: { value: TerminalType; label: string }[] = [
   { value: 'cmd', label: '命令提示符' },
   { value: 'powershell', label: 'PowerShell' },
   { value: 'powershell7', label: 'PowerShell 7' },
-  { value: 'windows-terminal', label: 'Windows Terminal' },
 ]
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
@@ -227,6 +226,20 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 <p className="text-xs text-muted-foreground">
                   新建和恢复时都会附加这些参数；留空则不附加默认权限参数
                 </p>
+              </div>
+
+              <div className="flex items-center justify-between rounded-md border p-3">
+                <div className="space-y-0.5">
+                  <Label htmlFor="maximize-window">打开终端时最大化</Label>
+                  <p className="text-xs text-muted-foreground">
+                    新建和恢复 session 时将终端窗口自动最大化
+                  </p>
+                </div>
+                <Switch
+                  id="maximize-window"
+                  checked={launchSettings.maximizeWindow === true}
+                  onCheckedChange={(enabled) => updateLaunchSettings({ maximizeWindow: enabled })}
+                />
               </div>
 
               <div className={`flex items-center justify-between rounded-md border p-3 ${terminalType === 'wezterm' ? 'opacity-60' : ''}`}>

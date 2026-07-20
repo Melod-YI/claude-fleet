@@ -131,32 +131,42 @@ fn get_process_image_basename(pid: u32) -> Option<String> {
     }
 }
 
-/// 判断 HWND 是否归属 Windows Terminal 进程（其 owner 进程名含 "WindowsTerminal"，
-/// 大小写不敏感）。仅 WT 走 attach 路径；wezterm/cmd/ps/git-bash 一律回退父链，
-/// 保证非 WT 终端行为与现状完全一致（零回归）。
+/// 取 console HWND 的 owner 进程可执行文件名（basename）。
+/// 仅需 PROCESS_QUERY_LIMITED_INFORMATION；提权/跨会话 OpenProcess 失败时返回 None。
 #[cfg(target_os = "windows")]
-fn is_windows_terminal_window(hwnd: HWND) -> bool {
+fn get_console_owner_name(hwnd: HWND) -> Option<String> {
     let mut owner_pid: u32 = 0;
-    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut owner_pid)); }
+    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut owner_pid)) };
     if owner_pid == 0 {
-        return false;
+        return None;
     }
-    match get_process_image_basename(owner_pid) {
-        Some(name) => name.to_lowercase().contains("windowsterminal"),
-        None => false,
-    }
+    get_process_image_basename(owner_pid)
 }
 
-/// 通过 AttachConsole + GetConsoleWindow 定位进程所在 console 的窗口 HWND。
-/// 仅当该 HWND 归属 WindowsTerminal.exe 时返回 Some（WT pseudo-console 宿主窗口，
-/// per-tab 唯一，SetForegroundWindow 经 WT v1.14+ 传播可切到正确 tab）。
-/// 对 wezterm（ConPTY 由 OpenConsole 宿主，返回不可见且不响应 fg 的窗口）、
-/// Git Bash（mintty 无真实 console，AttachConsole 失败）等一律返回 None，
-/// 由调用方回退现有父链逻辑——保持这些终端的现有行为不变。
+/// 判断 HWND 是否归属 Windows Terminal 进程（其 owner 进程名含 "WindowsTerminal"，
+/// 大小写不敏感）。用于区分激活路径（WT pseudo 走 activate_console_window）与
+/// refresh_session_names 的标题抖动规避。
+#[cfg(target_os = "windows")]
+fn is_windows_terminal_window(hwnd: HWND) -> bool {
+    get_console_owner_name(hwnd)
+        .map(|n| n.to_lowercase().contains("windowsterminal"))
+        .unwrap_or(false)
+}
+
+/// attach 拿到的 console 窗口是否应被采用（纯决策，便于单测）。
+/// - WT pseudo 窗口不可见，但 activate_console_window 经 GetAncestor 取真实 WT 主窗口激活 → 采用
+/// - 其余（conhost / cmd 自持 / …）：可见才采用；不可见（wezterm 的 OpenConsole，
+///   不响应前台）则丢弃，回退父链
+fn should_use_console_window(is_wt: bool, is_visible: bool) -> bool {
+    is_wt || is_visible
+}
+
+/// AttachConsole + GetConsoleWindow 的核心序列，返回目标进程所在 console 的窗口 HWND
+/// （不区分 owner 是 conhost 还是 WindowsTerminal）。失败/无 console 返回 None。
 ///
 /// 串行：attach 序列操作进程级 console 状态，持 CONSOLE_ATTACH_MUTEX 串行执行。
 #[cfg(target_os = "windows")]
-pub fn find_window_by_console_attach(pid: u32) -> Option<HWND> {
+fn raw_console_window_for_pid(pid: u32) -> Option<HWND> {
     // 不能 AttachConsole 到自身
     if pid == unsafe { GetCurrentProcessId() } {
         return None;
@@ -173,8 +183,7 @@ pub fn find_window_by_console_attach(pid: u32) -> Option<HWND> {
         unsafe { let _ = FreeConsole(); }
         let attached = unsafe { AttachConsole(pid) };
         if !attached.is_ok() {
-            // 失败原因常见：目标进程无 console（Git Bash/pty）、目标已退出、跨会话拒绝。
-            // 日志在出锁后打，避免持锁 I/O
+            // 失败原因常见：目标进程无 console（Git Bash/pty/wezterm GUI）、目标已退出、跨会话拒绝。
             return None;
         }
         let hwnd = unsafe { GetConsoleWindow() };
@@ -185,19 +194,48 @@ pub fn find_window_by_console_attach(pid: u32) -> Option<HWND> {
 
     // 出锁后再做校验与日志
     if hwnd.0.is_null() {
-        debug!("[find_window_by_console_attach] GetConsoleWindow 返回空，pid={}", pid);
+        debug!("[raw_console_window_for_pid] GetConsoleWindow 返回空，pid={}", pid);
         return None;
     }
     if unsafe { !IsWindow(hwnd).as_bool() } {
-        debug!("[find_window_by_console_attach] console HWND 已失效，pid={}", pid);
+        debug!("[raw_console_window_for_pid] console HWND 已失效，pid={}", pid);
         return None;
     }
-    if !is_windows_terminal_window(hwnd) {
-        // 非 WT（wezterm OpenConsole / 经典 conhost 等）——不采用，回退父链
-        debug!("[find_window_by_console_attach] console HWND owner 非 WT，丢弃，pid={}", pid);
+    Some(hwnd)
+}
+
+/// 通过 AttachConsole + GetConsoleWindow 定位进程所在 console 的窗口 HWND。
+///
+/// 采用判据（`should_use_console_window`）：
+/// - owner 为 WindowsTerminal（WT pseudo，不可见但 per-tab 唯一）→ 采用，激活经
+///   activate_console_window + GetAncestor 取真实 WT 主窗口并切到正确 tab。
+/// - 其余 owner（conhost / cmd 自持 / …）→ **窗口可见才采用**：cmd/conhost 等真实
+///   终端窗口可见，直接 activate_window 即可，不再依赖父链（父链需启动 launcher 仍
+///   存活，launcher 退出即断）。
+/// - 不可见且非 WT（wezterm 的 OpenConsole，不响应前台）→ 丢弃，回退父链解析 wezterm GUI 窗口。
+/// - Git Bash（mintty 无真实 console，AttachConsole 失败）→ None，回退父链。
+///
+/// 串行：attach 序列操作进程级 console 状态，持 CONSOLE_ATTACH_MUTEX 串行执行。
+#[cfg(target_os = "windows")]
+pub fn find_window_by_console_attach(pid: u32) -> Option<HWND> {
+    let hwnd = raw_console_window_for_pid(pid)?;
+    let owner_name = get_console_owner_name(hwnd);
+    let is_wt = owner_name
+        .as_ref()
+        .map(|n| n.to_lowercase().contains("windowsterminal"))
+        .unwrap_or(false);
+    let is_visible = unsafe { IsWindowVisible(hwnd).as_bool() };
+    if !should_use_console_window(is_wt, is_visible) {
+        debug!(
+            "[find_window_by_console_attach] console 窗口丢弃（is_wt={}, visible={}, owner={}），pid={}",
+            is_wt, is_visible, owner_name.unwrap_or_default(), pid
+        );
         return None;
     }
-    info!("[find_window_by_console_attach] 命中 WT pseudo console 窗口，pid={}", pid);
+    info!(
+        "[find_window_by_console_attach] 命中 console 窗口（is_wt={}, visible={}, owner={}），pid={}",
+        is_wt, is_visible, owner_name.unwrap_or_default(), pid
+    );
     Some(hwnd)
 }
 
@@ -207,7 +245,10 @@ pub fn find_window_by_console_attach(pid: u32) -> Option<HWND> {
 #[cfg(target_os = "windows")]
 pub fn resolve_window_for_pid(pid: u32) -> Option<(HWND, bool)> {
     if let Some(hwnd) = find_window_by_console_attach(pid) {
-        return Some((hwnd, true));
+        // is_console=true 仅 WT（走 activate_console_window + refresh_session_names 标题规避）；
+        // conhost 窗口是普通可见顶层窗口，走 activate_window。
+        let is_console = is_windows_terminal_window(hwnd);
+        return Some((hwnd, is_console));
     }
     if let Some(hwnd) = find_window_by_pid_chain(pid) {
         return Some((hwnd, false));
@@ -687,6 +728,60 @@ pub fn activate_console_window(hwnd: HWND) -> Result<(), String> {
     Ok(())
 }
 
+/// 启动终端后将其窗口最大化。供 launch_session 在 spawn 成功后调用。
+///
+/// 输入 pid 是被 spawn 的终端进程本身（cmd/powershell/wezterm），**不走父链**——
+/// cmd 等 console 进程的父是 Claude Fleet 自身，父链会误把应用窗口当终端。
+/// 故用 AttachConsole+GetConsoleWindow 直接取该进程的 console 窗口（conhost 或
+/// WT pseudo 均可）；wezterm 是 GUI 进程无 console，attach 失败 → 回退 find_window_by_pid
+/// 取其自身窗口。
+///
+/// 窗口可能要几十~几百 ms 才出现，故轮询（总上限约 1.5s），命中即 ShowWindow(SW_MAXIMIZE)。
+/// WT pseudo 窗口不可见，需 GetAncestor(GA_ROOTOWNER) 取真实 WT 主窗口再最大化。
+#[cfg(target_os = "windows")]
+pub fn maximize_terminal_window(pid: u32) -> Result<(), String> {
+    const POLL_INTERVAL_MS: u64 = 100;
+    const MAX_ATTEMPTS: u32 = 15;
+
+    for attempt in 0..MAX_ATTEMPTS {
+        if let Some((hwnd, is_console)) = resolve_window_for_maximize(pid) {
+            unsafe {
+                // is_console=true：WT pseudo 窗口（不可见），取 root owner（真实 WT 主窗口）再最大化；
+                // 普通窗口 GetAncestor 返回自身，同样安全。
+                let target = if is_console {
+                    let root = GetAncestor(hwnd, GA_ROOTOWNER);
+                    if root.0.is_null() { hwnd } else { root }
+                } else {
+                    hwnd
+                };
+                let ok = ShowWindow(target, SW_MAXIMIZE).as_bool();
+                info!(
+                    "[maximize_terminal_window] pid={} attempt={} hwnd={} is_console={} target={} ShowWindow(SW_MAXIMIZE)={}",
+                    pid, attempt, hwnd.0 as usize, is_console, target.0 as usize, ok
+                );
+            }
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MS));
+    }
+
+    let msg = format!("未找到终端窗口（轮询 {} 次超时），pid={}", MAX_ATTEMPTS, pid);
+    warn!("[maximize_terminal_window] {}", msg);
+    Err(msg)
+}
+
+/// 最大化专用窗口解析：attach 命中即采用（不区分 conhost/WT），无 console 则取进程自身窗口。
+/// 不走父链（避免误中 Claude Fleet 自身窗口）。
+#[cfg(target_os = "windows")]
+fn resolve_window_for_maximize(pid: u32) -> Option<(HWND, bool)> {
+    if let Some(hwnd) = raw_console_window_for_pid(pid) {
+        let is_console = is_windows_terminal_window(hwnd);
+        return Some((hwnd, is_console));
+    }
+    // GUI 终端（wezterm）：进程直接持有窗口
+    find_window_by_pid(pid).map(|hwnd| (hwnd, false))
+}
+
 /// 非 Windows 平台的备用实现
 #[cfg(not(target_os = "windows"))]
 pub fn find_window_by_pid(target_pid: u32) -> Option<u64> {
@@ -757,4 +852,25 @@ pub fn is_cached_console_window(_pid: u32) -> bool {
 #[cfg(not(target_os = "windows"))]
 pub fn activate_console_window(_window_id: u64) -> Result<(), String> {
     Err("仅支持 Windows 平台".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn maximize_terminal_window(_pid: u32) -> Result<(), String> {
+    Err("仅支持 Windows 平台".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_use_console_window_rule() {
+        // WT pseudo（不可见）→ 采用：activate_console_window 经 GetAncestor 激活真实 WT 主窗口
+        assert!(should_use_console_window(true, false));
+        assert!(should_use_console_window(true, true));
+        // conhost / cmd 自持等可见窗口 → 采用
+        assert!(should_use_console_window(false, true));
+        // wezterm OpenConsole（不可见且非 WT，不响应前台）→ 丢弃回退父链
+        assert!(!should_use_console_window(false, false));
+    }
 }

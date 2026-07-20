@@ -67,12 +67,17 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
       if (settings['theme']) {
         parsed.theme = settings['theme'] as 'light' | 'dark' | 'system'
       }
-      if (settings['terminalType']) {
-        parsed.terminalType = settings['terminalType'] as TerminalType
-      }
+      // 读取终端类型；对已不支持的老值（如已移除的 windows-terminal）fallback 到 cmd，
+      // 仅读取时归一，不回写数据库（不主动迁移持久化数据）
+      const rawTerminalType = settings['terminalType'] as string | undefined
+      const terminalType: TerminalType = resolveTerminalType(rawTerminalType)
+      parsed.terminalType = terminalType
 
-      const terminalId = parsed.terminalType ?? DEFAULT_SETTINGS.terminalType
-      parsed.launchSettings = parseLaunchSettings(settings['launchSettings'], terminalId)
+      const launchSettings = parseLaunchSettings(settings['launchSettings'], terminalType)
+      if (!isTerminalType(launchSettings.terminalId)) {
+        launchSettings.terminalId = terminalType
+      }
+      parsed.launchSettings = launchSettings
 
       // 清除已废弃的全局 lastBaseRef（改为按仓库记忆，见 CreateWorktreeDialog）
       if (settings['lastBaseRef'] !== undefined) {
@@ -164,7 +169,16 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
 }))
 
 function isTerminalType(value: string): value is TerminalType {
-  return value === 'wezterm' || value === 'cmd' || value === 'powershell' || value === 'powershell7' || value === 'windows-terminal'
+  return value === 'wezterm' || value === 'cmd' || value === 'powershell' || value === 'powershell7'
+}
+
+/// 读取终端类型：支持集合内则用原值；有值但不支持（如已移除的 windows-terminal）
+/// fallback 到 cmd（Windows 必有，且经系统默认终端可路由到 WT）；无值用应用默认。
+/// 仅做读取时归一，不回写数据库。
+function resolveTerminalType(raw: string | undefined): TerminalType {
+  if (raw && isTerminalType(raw)) return raw
+  if (raw && raw.trim()) return 'cmd'
+  return DEFAULT_SETTINGS.terminalType
 }
 
 /**

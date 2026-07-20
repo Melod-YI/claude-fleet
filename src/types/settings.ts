@@ -1,4 +1,4 @@
-export type TerminalType = 'wezterm' | 'cmd' | 'powershell' | 'powershell7' | 'windows-terminal'
+export type TerminalType = 'wezterm' | 'cmd' | 'powershell' | 'powershell7'
 
 export interface CommandWrapperSettings {
   enabled: boolean
@@ -11,6 +11,7 @@ export interface LaunchSettings {
   claudeExecutable: string
   claudeArgs: string[]
   wrapper?: CommandWrapperSettings
+  maximizeWindow?: boolean
 }
 
 // 音频文件信息
@@ -53,6 +54,7 @@ export function createDefaultLaunchSettings(terminalId: string = 'wezterm'): Lau
       executable: 'ccglass',
       argsBeforeAgent: [],
     },
+    maximizeWindow: false,
   }
 }
 
@@ -88,6 +90,7 @@ export function parseLaunchSettings(value: string | undefined, fallbackTerminalI
             executable: 'ccglass',
             argsBeforeAgent: [],
           },
+      maximizeWindow: parsed.maximizeWindow === true,
     }
   } catch {
     return createDefaultLaunchSettings(fallbackTerminalId)
