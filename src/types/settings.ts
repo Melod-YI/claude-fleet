@@ -1,5 +1,10 @@
 export type TerminalType = 'wezterm' | 'cmd' | 'powershell' | 'powershell7'
 
+/// 终端 fallback 默认值：新用户无值、老值不支持（如已移除的 windows-terminal）、
+/// createDefaultLaunchSettings 缺省参数，统一引用此常量，避免字面量散落。
+/// powershell：Windows 内置、可被系统默认终端路由到 WT。
+export const FALLBACK_TERMINAL_TYPE: TerminalType = 'powershell'
+
 export interface CommandWrapperSettings {
   enabled: boolean
   executable: string
@@ -44,7 +49,7 @@ export interface AppSettings {
   launchSettings: LaunchSettings
 }
 
-export function createDefaultLaunchSettings(terminalId: string = 'powershell'): LaunchSettings {
+export function createDefaultLaunchSettings(terminalId: string = FALLBACK_TERMINAL_TYPE): LaunchSettings {
   return {
     terminalId,
     claudeExecutable: 'claude',

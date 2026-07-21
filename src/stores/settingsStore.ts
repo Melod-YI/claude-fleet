@@ -10,7 +10,7 @@ import {
   FavoritePath,
 } from '@/services/dbService'
 import type { AppSettings, TerminalType } from '@/types'
-import { createDefaultLaunchSettings, parseLaunchSettings } from '@/types'
+import { createDefaultLaunchSettings, parseLaunchSettings, FALLBACK_TERMINAL_TYPE } from '@/types'
 import type { LaunchSettings } from '@/types'
 
 interface SettingsState extends AppSettings {
@@ -38,8 +38,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   notificationDesktop: true,
   notificationSoundFile: '',
   theme: 'system',
-  terminalType: 'powershell',
-  launchSettings: createDefaultLaunchSettings('powershell'),
+  terminalType: FALLBACK_TERMINAL_TYPE,
+  launchSettings: createDefaultLaunchSettings(FALLBACK_TERMINAL_TYPE),
 }
 
 export const useSettingsStore = create<SettingsState>()((set, get) => ({
@@ -173,12 +173,11 @@ function isTerminalType(value: string): value is TerminalType {
 }
 
 /// 读取终端类型：支持集合内则用原值；有值但不支持（如已移除的 windows-terminal）
-/// fallback 到 powershell（Windows 内置、可被系统默认终端路由到 WT）；无值用应用默认。
+/// 或无值，均 fallback 到 FALLBACK_TERMINAL_TYPE（见 types/settings.ts）。
 /// 仅做读取时归一，不回写数据库。
 function resolveTerminalType(raw: string | undefined): TerminalType {
   if (raw && isTerminalType(raw)) return raw
-  if (raw && raw.trim()) return 'powershell'
-  return DEFAULT_SETTINGS.terminalType
+  return FALLBACK_TERMINAL_TYPE
 }
 
 /**
