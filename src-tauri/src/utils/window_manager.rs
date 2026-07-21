@@ -732,54 +732,152 @@ pub fn activate_console_window(hwnd: HWND) -> Result<(), String> {
 ///
 /// 输入 pid 是被 spawn 的终端进程本身（cmd/powershell/wezterm），**不走父链**——
 /// cmd 等 console 进程的父是 Claude Fleet 自身，父链会误把应用窗口当终端。
-/// 故用 AttachConsole+GetConsoleWindow 直接取该进程的 console 窗口（conhost 或
-/// WT pseudo 均可）；wezterm 是 GUI 进程无 console，attach 失败 → 回退 find_window_by_pid
-/// 取其自身窗口。
 ///
-/// 窗口可能要几十~几百 ms 才出现，故轮询（总上限约 1.5s），命中即 ShowWindow(SW_MAXIMIZE)。
-/// WT pseudo 窗口不可见，需 GetAncestor(GA_ROOTOWNER) 取真实 WT 主窗口再最大化。
+/// 流程分两阶段：
+/// 1. **单次 attach**：`raw_console_window_for_pid` 拿到 console pseudo HWND（成功即停止，
+///    不在轮询中反复 attach）。attach 失败（wezterm GUI 无 console）则走 GUI 回退。
+/// 2. **无副作用轮询**：用阶段 1 拿到的 pseudo 解析【可见+有标题】的终端主窗口，
+///    命中即 `ShowWindow(SW_MAXIMIZE)`。此阶段不调用 AttachConsole，无 console 状态污染。
+///
+/// **标准句柄清理**：阶段 1 结束后立即调用 `process::reset_std_handles`。AttachConsole
+/// 会把本进程挂到子进程 console，FreeConsole 后三个 std handle 残留为失效句柄，后续
+/// `CreateProcess(CREATE_NEW_CONSOLE)` 报 os error 50 (ERROR_NOT_SUPPORTED)，表现为
+/// "首次启动正常，之后所有启动都失败"。主动清理（与 process::spawn 的 error 6 恢复同源）
+/// 保证后续启动不受影响。
+///
+/// **安全约束**：阶段 2 只返回【可见且有非空标题】的窗口。WT/ConPTY pseudo 窗口可能
+/// WS_VISIBLE=true 但不绘制，最大化它会"激活 + 铺满全屏"形成整屏隐形前台窗口，吞掉所有
+/// 鼠标点击；pseudo 无标题，"有非空标题"判据可将其过滤。
 #[cfg(target_os = "windows")]
 pub fn maximize_terminal_window(pid: u32) -> Result<(), String> {
     const POLL_INTERVAL_MS: u64 = 100;
     const MAX_ATTEMPTS: u32 = 15;
 
+    // 阶段1：单次 attach 发现 console pseudo HWND。失败 attach 无副作用；成功即停止，
+    // 避免反复 attach/detach 加重 std 句柄污染。
+    let mut pseudo: Option<HWND> = None;
     for attempt in 0..MAX_ATTEMPTS {
-        if let Some((hwnd, is_console)) = resolve_window_for_maximize(pid) {
-            unsafe {
-                // is_console=true：WT pseudo 窗口（不可见），取 root owner（真实 WT 主窗口）再最大化；
-                // 普通窗口 GetAncestor 返回自身，同样安全。
-                let target = if is_console {
-                    let root = GetAncestor(hwnd, GA_ROOTOWNER);
-                    if root.0.is_null() { hwnd } else { root }
-                } else {
-                    hwnd
-                };
-                let ok = ShowWindow(target, SW_MAXIMIZE).as_bool();
-                info!(
-                    "[maximize_terminal_window] pid={} attempt={} hwnd={} is_console={} target={} ShowWindow(SW_MAXIMIZE)={}",
-                    pid, attempt, hwnd.0 as usize, is_console, target.0 as usize, ok
-                );
-            }
-            return Ok(());
+        if let Some(hwnd) = raw_console_window_for_pid(pid) {
+            debug!(
+                "[maximize_terminal_window] 阶段1 attach 命中 attempt={} hwnd={} pid={}",
+                attempt, hwnd.0 as usize, pid
+            );
+            pseudo = Some(hwnd);
+            break;
         }
         std::thread::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MS));
     }
 
-    let msg = format!("未找到终端窗口（轮询 {} 次超时），pid={}", MAX_ATTEMPTS, pid);
-    warn!("[maximize_terminal_window] {}", msg);
-    Err(msg)
+    // attach 阶段结束：清理被污染的标准句柄，避免后续 spawn 报 os error 50。
+    crate::utils::process::reset_std_handles();
+
+    // 阶段2：定位可见+有标题的终端窗口（无 attach 副作用），命中即最大化。
+    let target = if let Some(pseudo_hwnd) = pseudo {
+        // console 终端：用阶段1的 pseudo 解析 owner 的可见主窗口
+        let mut found: Option<HWND> = None;
+        for attempt in 0..MAX_ATTEMPTS {
+            if let Some(h) = resolve_visible_target_from_pseudo(pseudo_hwnd) {
+                debug!(
+                    "[maximize_terminal_window] 阶段2 命中可见窗口 attempt={} pid={}",
+                    attempt, pid
+                );
+                found = Some(h);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MS));
+        }
+        found
+    } else {
+        // GUI 终端（wezterm）：attach 全程失败，枚举 spawn 进程自身可见窗口（无 attach 污染）
+        let mut found: Option<HWND> = None;
+        for attempt in 0..MAX_ATTEMPTS {
+            if let Some(h) = find_window_by_pid(pid) {
+                debug!(
+                    "[maximize_terminal_window] GUI 回退命中可见窗口 attempt={} pid={}",
+                    attempt, pid
+                );
+                found = Some(h);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MS));
+        }
+        found
+    };
+
+    if let Some(target) = target {
+        unsafe {
+            // 诊断日志：打印 target 关键属性，便于定位是否误中 pseudo 窗口
+            let visible = IsWindowVisible(target).as_bool();
+            let mut title_buf: [u16; 256] = [0; 256];
+            let title_len = GetWindowTextW(target, &mut title_buf);
+            let title = if title_len > 0 {
+                String::from_utf16_lossy(&title_buf[..title_len as usize])
+            } else {
+                String::new()
+            };
+            let mut owner_pid: u32 = 0;
+            GetWindowThreadProcessId(target, Some(&mut owner_pid));
+            let owner_name = get_process_image_basename(owner_pid).unwrap_or_default();
+            let ok = ShowWindow(target, SW_MAXIMIZE).as_bool();
+            info!(
+                "[maximize_terminal_window] pid={} target={} visible={} title=\"{}\" owner_pid={} owner=\"{}\" ShowWindow(SW_MAXIMIZE)={}",
+                pid, target.0 as usize, visible, title, owner_pid, owner_name, ok
+            );
+        }
+        Ok(())
+    } else {
+        let msg = format!("未找到可见终端窗口（轮询 {} 次超时），pid={}", MAX_ATTEMPTS, pid);
+        warn!("[maximize_terminal_window] {}", msg);
+        Err(msg)
+    }
 }
 
-/// 最大化专用窗口解析：attach 命中即采用（不区分 conhost/WT），无 console 则取进程自身窗口。
-/// 不走父链（避免误中 Claude Fleet 自身窗口）。
+/// 从 console pseudo HWND 解析【可见+有标题】的终端主窗口（不调用 AttachConsole）。
+///
+/// - WT pseudo：优先 GetAncestor(GA_ROOTOWNER) 精确定位宿主 WT 主窗口（多 WT 窗口不误选），
+///   要求可见+有标题；owner 链早期未建立 → 回退 find_window_by_pid(owner_pid)。
+/// - conhost / cmd 自持 / 其它 host：直接 find_window_by_pid(owner_pid) 枚举 owner 进程的
+///   可见+有标题窗口（pseudo 无标题/不可见会被过滤）。
 #[cfg(target_os = "windows")]
-fn resolve_window_for_maximize(pid: u32) -> Option<(HWND, bool)> {
-    if let Some(hwnd) = raw_console_window_for_pid(pid) {
-        let is_console = is_windows_terminal_window(hwnd);
-        return Some((hwnd, is_console));
+fn resolve_visible_target_from_pseudo(pseudo_hwnd: HWND) -> Option<HWND> {
+    if is_windows_terminal_window(pseudo_hwnd) {
+        if let Some(root) = visible_titled_root_owner(pseudo_hwnd) {
+            debug!("[resolve_visible_target_from_pseudo] GetAncestor 命中可见有标题 root");
+            return Some(root);
+        }
     }
-    // GUI 终端（wezterm）：进程直接持有窗口
-    find_window_by_pid(pid).map(|hwnd| (hwnd, false))
+    let mut owner_pid: u32 = 0;
+    unsafe { GetWindowThreadProcessId(pseudo_hwnd, Some(&mut owner_pid)); }
+    if owner_pid != 0 {
+        if let Some(real) = find_window_by_pid(owner_pid) {
+            debug!(
+                "[resolve_visible_target_from_pseudo] owner_pid={} 枚举命中可见有标题窗口",
+                owner_pid
+            );
+            return Some(real);
+        }
+    }
+    None
+}
+
+/// 取 pseudo console 窗口经 owner 链解析到的真实顶层窗口，仅当该 root 非 null、
+/// 不等于 pseudo 自身、可见、且有非空标题时返回。否则 None（调用方回退按 PID 枚举）。
+#[cfg(target_os = "windows")]
+fn visible_titled_root_owner(hwnd: HWND) -> Option<HWND> {
+    unsafe {
+        let root = GetAncestor(hwnd, GA_ROOTOWNER);
+        if root.0.is_null() || root.0 == hwnd.0 {
+            return None;
+        }
+        if !IsWindowVisible(root).as_bool() {
+            return None;
+        }
+        let mut buf: [u16; 256] = [0; 256];
+        if GetWindowTextW(root, &mut buf) <= 0 {
+            return None;
+        }
+        Some(root)
+    }
 }
 
 /// 非 Windows 平台的备用实现
@@ -857,6 +955,108 @@ pub fn activate_console_window(_window_id: u64) -> Result<(), String> {
 #[cfg(not(target_os = "windows"))]
 pub fn maximize_terminal_window(_pid: u32) -> Result<(), String> {
     Err("仅支持 Windows 平台".to_string())
+}
+
+/// CLI 子命令 `maximize-window` 的实现：在**当前 helper 进程**内最大化所在终端窗口。
+///
+/// 供 launch 构造的终端命令前置调用（如 `cmd /K "claude-fleet.exe maximize-window && claude ..."`）：
+/// helper 进程短命，AttachConsole 污染随进程退出消亡，Tauri 主进程永不调用 AttachConsole，
+/// 杜绝 os error 50 与点击陷阱。
+///
+/// 流程：
+/// 1. AttachConsole(ATTACH_PARENT_PROCESS) 挂到父进程（终端进程）的 console。
+/// 2. GetConsoleWindow 取 pseudo/conhost 窗口 → 解析【可见+有标题】目标（WT 走 GetAncestor
+///    GA_ROOTOWNER，conhost 直接用，兜底 find_window_by_pid(owner_pid)）→ ShowWindow(SW_MAXIMIZE)。
+/// 3. 阶段2 拿不到可见目标（wezterm ConPTY 等）→ 沿父链找可见+有标题祖先窗口，
+///    跳过 image 名含 claude-fleet 的祖先（防误最大化 app 自身）→ ShowWindow。（Task 2 实现）
+/// 4. 始终返回 Ok（best-effort，绝不阻塞 claude）。
+#[cfg(target_os = "windows")]
+pub fn maximize_current_process_window() -> Result<(), String> {
+    let pid = unsafe { GetCurrentProcessId() };
+    info!("[maximize_current_process_window] 开始，pid={}", pid);
+
+    // 阶段1+2：attach 父 console → console 路径
+    if let Some(target) = resolve_console_target() {
+        unsafe {
+            let ok = ShowWindow(target, SW_MAXIMIZE).as_bool();
+            info!(
+                "[maximize_current_process_window] console 路径命中 target={} ShowWindow(SW_MAXIMIZE)={}",
+                target.0 as usize, ok
+            );
+        }
+        return Ok(());
+    }
+
+    // 阶段3 父链兜底由 Task 2 补充；当前直接跳过
+    warn!(
+        "[maximize_current_process_window] console 路径未命中可见窗口，跳过最大化（阶段3 未实现），pid={}",
+        pid
+    );
+    Ok(())
+}
+
+/// AttachConsole(ATTACH_PARENT_PROCESS) + GetConsoleWindow 解析【可见+有标题】的终端窗口。
+///
+/// - WT pseudo（不可见）：GetAncestor(GA_ROOTOWNER) 取宿主 WT 主窗口（visible_titled_root_owner）。
+/// - conhost / cmd 自持：hwnd 须可见+有标题才采用（防 pseudo 陷阱）。
+/// - 兜底：find_window_by_pid(owner_pid) 枚举 owner 进程的可见+有标题窗口。
+///
+/// 失败/无可见目标返回 None（调用方走阶段3 父链兜底）。
+#[cfg(target_os = "windows")]
+fn resolve_console_target() -> Option<HWND> {
+    unsafe {
+        // 清理自身可能残留的 attach（helper 通常无 console，FreeConsole 无副作用）
+        let _ = FreeConsole();
+        if AttachConsole(ATTACH_PARENT_PROCESS).is_err() {
+            debug!("[resolve_console_target] AttachConsole(父) 失败（父无 console），走父链兜底");
+            return None;
+        }
+        let hwnd = GetConsoleWindow();
+        // 立即释放 attach，避免影响后续
+        let _ = FreeConsole();
+
+        if hwnd.0.is_null() {
+            debug!("[resolve_console_target] GetConsoleWindow 返回空");
+            return None;
+        }
+        // WT：GetAncestor 取可见+有标题的宿主主窗口
+        if is_windows_terminal_window(hwnd) {
+            if let Some(root) = visible_titled_root_owner(hwnd) {
+                debug!("[resolve_console_target] WT GetAncestor 命中可见有标题 root");
+                return Some(root);
+            }
+        }
+        // conhost 自持：须可见+有标题（防 pseudo 陷阱）
+        if is_visible_titled(hwnd) {
+            debug!("[resolve_console_target] conhost 窗口可见有标题，直接采用");
+            return Some(hwnd);
+        }
+        // 兜底：枚举 owner 进程的可见+有标题窗口
+        let mut owner_pid: u32 = 0;
+        GetWindowThreadProcessId(hwnd, Some(&mut owner_pid));
+        if owner_pid != 0 {
+            if let Some(real) = find_window_by_pid(owner_pid) {
+                debug!(
+                    "[resolve_console_target] owner_pid={} 兜底枚举命中可见有标题窗口",
+                    owner_pid
+                );
+                return Some(real);
+            }
+        }
+        None
+    }
+}
+
+/// HWND 是否可见且有非空标题（pseudo 窗口无标题或不可见会被过滤）。
+#[cfg(target_os = "windows")]
+fn is_visible_titled(hwnd: HWND) -> bool {
+    unsafe {
+        if !IsWindowVisible(hwnd).as_bool() {
+            return false;
+        }
+        let mut buf: [u16; 256] = [0; 256];
+        GetWindowTextW(hwnd, &mut buf) > 0
+    }
 }
 
 #[cfg(test)]

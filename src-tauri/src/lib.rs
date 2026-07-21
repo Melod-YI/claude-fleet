@@ -112,6 +112,19 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// CLI 子命令 `maximize-window` 的入口：在 helper 进程内最大化当前/父终端窗口。
+/// 由 main.rs 在解析到 `maximize-window` 子命令时调用，不进入 Tauri。
+pub fn maximize_current_process_window() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        crate::utils::window_manager::maximize_current_process_window()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("仅支持 Windows 平台".to_string())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 设置 Ctrl+C 处理，优雅退出
