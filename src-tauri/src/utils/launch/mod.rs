@@ -165,9 +165,12 @@ pub fn build_spawn_plan(request: &LaunchRequest) -> Result<SpawnPlan, String> {
             // cmd.exe 自有命令行解析器，不识别 `\"` 转义。helper exe 路径含空格时
             // （如 `C:\Users\...\Claude Fleet\claude-fleet.exe`），用 raw_arg 把带引号的
             // 命令串原样传给 cmd，避免 Rust .args() 把 " 转义为 \" 破坏 cmd 解析。
+            //
+            // 关键：cmd /K 若命令串首字符是 `"`，会剥掉首 `"` 并删除最后一个 `"`。
+            // 故 k_raw 外层再包一对"牺牲引号"：cmd 剥外层后，内层 `"<exe>"` 引号得以保留。
             match &helper_exe {
                 Some(exe) => {
-                    let k_raw = format!("\"{}\" maximize-window && {}", exe, claude_cmdline);
+                    let k_raw = format!("\"\"{}\" maximize-window && {}\"", exe, claude_cmdline);
                     Ok(SpawnPlan {
                         command: "cmd.exe".to_string(),
                         args: vec!["/K".to_string()],
