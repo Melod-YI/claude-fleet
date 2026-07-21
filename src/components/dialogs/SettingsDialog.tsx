@@ -228,16 +228,22 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 </p>
               </div>
 
-              <div className="flex items-center justify-between rounded-md border p-3">
+              <div className={`flex items-center justify-between rounded-md border p-3 ${terminalType === 'wezterm' ? 'opacity-60' : ''}`}>
                 <div className="space-y-0.5">
                   <Label htmlFor="maximize-window">打开终端时最大化</Label>
                   <p className="text-xs text-muted-foreground">
-                    新建和恢复 session 时将终端窗口自动最大化
+                    新建和恢复 session 时将终端窗口自动最大化（在 claude 渲染前完成）
                   </p>
+                  {terminalType === 'wezterm' && (
+                    <p className="text-xs text-amber-600">
+                      WezTerm 不支持最大化，已自动跳过
+                    </p>
+                  )}
                 </div>
                 <Switch
                   id="maximize-window"
-                  checked={launchSettings.maximizeWindow === true}
+                  checked={terminalType === 'wezterm' ? false : launchSettings.maximizeWindow === true}
+                  disabled={terminalType === 'wezterm'}
                   onCheckedChange={(enabled) => updateLaunchSettings({ maximizeWindow: enabled })}
                 />
               </div>

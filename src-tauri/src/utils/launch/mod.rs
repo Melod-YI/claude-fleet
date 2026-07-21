@@ -55,6 +55,9 @@ pub struct LaunchRequest {
 pub struct SpawnPlan {
     pub command: String,
     pub args: Vec<String>,
+    /// 需原样传入（不转义）的参数。cmd.exe 的 /K 命令串含原始 `"` 字符，普通 `.args()`
+    /// 会把 `"` 转义为 `\"`（cmd 不认），故 helper 前缀的 cmd 命令走 raw_arg。
+    pub raw_args: Vec<String>,
     pub current_dir: Option<String>,
     pub creation_flags: Option<u32>,
 }
@@ -120,8 +123,28 @@ pub fn build_spawn_plan(request: &LaunchRequest) -> Result<SpawnPlan, String> {
     if process_argv.is_empty() {
         return Err("启动命令为空".to_string());
     }
+    let claude_cmdline = command_line(&process_argv);
+    let maximize = request.settings.maximize_window;
+    let terminal = request.settings.terminal_id.as_str();
 
-    match request.settings.terminal_id.as_str() {
+    // wezterm 不支持最大化：即使 maximize=true 也不前缀 helper，warn 跳过
+    if maximize && terminal == "wezterm" {
+        tracing::warn!("[build_spawn_plan] wezterm 不支持最大化，已跳过 helper 前缀");
+    }
+    // helper exe 路径（maximize && 非 wezterm 时需要）。current_exe 失败则退化为不前缀 helper。
+    let helper_exe: Option<String> = if maximize && terminal != "wezterm" {
+        match std::env::current_exe() {
+            Ok(p) => Some(p.display().to_string()),
+            Err(e) => {
+                tracing::warn!("[build_spawn_plan] current_exe 失败，退化为不前缀 helper: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    match terminal {
         "wezterm" => Ok(SpawnPlan {
             command: "wezterm".to_string(),
             args: [
@@ -134,52 +157,64 @@ pub fn build_spawn_plan(request: &LaunchRequest) -> Result<SpawnPlan, String> {
                 process_argv,
             ]
             .concat(),
+            raw_args: vec![],
             current_dir: None,
             creation_flags: Some(DETACHED_PROCESS),
         }),
-        "cmd" => Ok(SpawnPlan {
-            command: "cmd.exe".to_string(),
-            args: vec!["/K".to_string(), command_line(&process_argv)],
-            current_dir: Some(request.working_directory.clone()),
-            creation_flags: Some(CREATE_NEW_CONSOLE),
-        }),
-        "powershell" => Ok(SpawnPlan {
-            command: "powershell.exe".to_string(),
-            args: vec![
-                "-Command".to_string(),
-                command_line(&process_argv),
-            ],
-            current_dir: Some(request.working_directory.clone()),
-            creation_flags: Some(CREATE_NEW_CONSOLE),
-        }),
-        "powershell7" => Ok(SpawnPlan {
-            command: "pwsh.exe".to_string(),
-            args: vec![
-                "-Command".to_string(),
-                command_line(&process_argv),
-            ],
-            current_dir: Some(request.working_directory.clone()),
-            creation_flags: Some(CREATE_NEW_CONSOLE),
-        }),
+        "cmd" => {
+            // cmd.exe 自有命令行解析器，不识别 `\"` 转义。helper exe 路径含空格时
+            // （如 `C:\Users\...\Claude Fleet\claude-fleet.exe`），用 raw_arg 把带引号的
+            // 命令串原样传给 cmd，避免 Rust .args() 把 " 转义为 \" 破坏 cmd 解析。
+            match &helper_exe {
+                Some(exe) => {
+                    let k_raw = format!("\"{}\" maximize-window && {}", exe, claude_cmdline);
+                    Ok(SpawnPlan {
+                        command: "cmd.exe".to_string(),
+                        args: vec!["/K".to_string()],
+                        raw_args: vec![k_raw],
+                        current_dir: Some(request.working_directory.clone()),
+                        creation_flags: Some(CREATE_NEW_CONSOLE),
+                    })
+                }
+                None => Ok(SpawnPlan {
+                    command: "cmd.exe".to_string(),
+                    args: vec!["/K".to_string(), claude_cmdline],
+                    raw_args: vec![],
+                    current_dir: Some(request.working_directory.clone()),
+                    creation_flags: Some(CREATE_NEW_CONSOLE),
+                }),
+            }
+        }
+        "powershell" | "powershell7" => {
+            let exe_name = if terminal == "powershell" {
+                "powershell.exe"
+            } else {
+                "pwsh.exe"
+            };
+            // powershell 用标准 argv 解析（识别 \"），普通 .args() 即可；
+            // 用 & 调用操作符包裹带双引号的 exe 路径。
+            let cmd_arg = match &helper_exe {
+                Some(exe) => format!("& \"{}\" maximize-window; {}", exe, claude_cmdline),
+                None => claude_cmdline,
+            };
+            Ok(SpawnPlan {
+                command: exe_name.to_string(),
+                args: vec!["-Command".to_string(), cmd_arg],
+                raw_args: vec![],
+                current_dir: Some(request.working_directory.clone()),
+                creation_flags: Some(CREATE_NEW_CONSOLE),
+            })
+        }
         other => Err(format!("不支持的终端类型: {}", other)),
     }
 }
 
 pub fn launch_session(request: &LaunchRequest) -> Result<(), String> {
     let plan = build_spawn_plan(request)?;
-    let child = spawn_plan(&plan)?;
-
-    if request.settings.maximize_window {
-        let pid = child.id();
-        tracing::info!("[launch_session] maximize_window=true，后台最大化终端窗口 pid={}", pid);
-        // 后台轮询定位并最大化，不阻塞启动返回；丢 child 不影响终端进程存活
-        std::thread::spawn(move || {
-            if let Err(e) = crate::utils::window_manager::maximize_terminal_window(pid) {
-                tracing::warn!("[launch_session] 最大化终端窗口失败 pid={}: {}", pid, e);
-            }
-        });
-    }
-
+    // 最大化由终端命令前置的 helper 子命令完成（build_spawn_plan 在 maximize_window=true
+    // 时已构造 "<helper> maximize-window && claude..."），此处不再事后补最大化。
+    // 丢 child 不影响终端进程存活（drop 仅关闭句柄，不杀进程）。
+    let _child = spawn_plan(&plan)?;
     Ok(())
 }
 
@@ -187,14 +222,26 @@ pub fn spawn_plan(plan: &SpawnPlan) -> Result<std::process::Child, String> {
     let mut command = Command::new(&plan.command);
     command.args(&plan.args);
 
-    if let Some(current_dir) = &plan.current_dir {
-        command.current_dir(current_dir);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        // raw_args：原样追加（不转义）。cmd.exe 的 /K 命令串含原始 " 字符，
+        // 普通 .args() 会把 " 转义为 \"（cmd 不认），故 helper 前缀的 cmd 命令走 raw_arg。
+        for raw in &plan.raw_args {
+            command.raw_arg(raw);
+        }
+        if let Some(flags) = plan.creation_flags {
+            command.creation_flags(flags);
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = &plan.raw_args;
+        let _ = &plan.creation_flags;
     }
 
-    #[cfg(target_os = "windows")]
-    if let Some(flags) = plan.creation_flags {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(flags);
+    if let Some(current_dir) = &plan.current_dir {
+        command.current_dir(current_dir);
     }
 
     crate::utils::process::spawn(&mut command)
