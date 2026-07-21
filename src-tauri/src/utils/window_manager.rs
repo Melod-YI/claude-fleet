@@ -965,30 +965,32 @@ pub fn maximize_terminal_window(_pid: u32) -> Result<(), String> {
 ///
 /// 流程：
 /// 1. AttachConsole(ATTACH_PARENT_PROCESS) 挂到父进程（终端进程）的 console。
-/// 2. GetConsoleWindow 取 console 窗口 → 解析【可见+有标题】目标 → ShowWindow(SW_MAXIMIZE)。
-/// 3. 阶段2 拿不到可见目标 → 沿父链找可见+有标题祖先窗口（跳过 app 自身）→ ShowWindow。
-///    （Task 2 实现）
-/// 4. 始终返回 Ok（best-effort，绝不阻塞 claude）。
+/// 2. GetConsoleWindow 取 console 窗口 → 解析【可见+有标题】目标（见 resolve_console_target）
+///    → ShowWindow(SW_MAXIMIZE)。
+/// 3. 始终返回 Ok（best-effort，未命中也不阻塞 claude）。
+///
+/// 不做父链兜底：cmd/ps/ps7 的 console 路径已全覆盖（WT 宿主走 GetAncestor 取宿主主窗、
+/// 经典 conhost 直接用可见 hwnd）；父链兜底对手动开的终端有误最大化 explorer 等风险，且
+/// wezterm（原设想用例）已不支持最大化，故不引入。
 #[cfg(target_os = "windows")]
 pub fn maximize_current_process_window() -> Result<(), String> {
     let pid = unsafe { GetCurrentProcessId() };
     info!("[maximize_current_process_window] 开始，pid={}", pid);
 
-    // 阶段1+2：attach 父 console → console 路径
+    // attach 父 console → console 路径
     if let Some(target) = resolve_console_target() {
         unsafe {
             let ok = ShowWindow(target, SW_MAXIMIZE).as_bool();
             info!(
-                "[maximize_current_process_window] console 路径命中 target={} ShowWindow(SW_MAXIMIZE)={}",
+                "[maximize_current_process_window] 命中 target={} ShowWindow(SW_MAXIMIZE)={}",
                 target.0 as usize, ok
             );
         }
         return Ok(());
     }
 
-    // 阶段3 父链兜底由 Task 2 补充；当前直接跳过
     warn!(
-        "[maximize_current_process_window] console 路径未命中可见窗口，跳过最大化（阶段3 未实现），pid={}",
+        "[maximize_current_process_window] 未命中可见终端窗口，跳过最大化，pid={}",
         pid
     );
     Ok(())
