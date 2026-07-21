@@ -44,7 +44,7 @@ export interface AppSettings {
   launchSettings: LaunchSettings
 }
 
-export function createDefaultLaunchSettings(terminalId: string = 'wezterm'): LaunchSettings {
+export function createDefaultLaunchSettings(terminalId: string = 'powershell'): LaunchSettings {
   return {
     terminalId,
     claudeExecutable: 'claude',

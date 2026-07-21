@@ -38,8 +38,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   notificationDesktop: true,
   notificationSoundFile: '',
   theme: 'system',
-  terminalType: 'wezterm',
-  launchSettings: createDefaultLaunchSettings('wezterm'),
+  terminalType: 'powershell',
+  launchSettings: createDefaultLaunchSettings('powershell'),
 }
 
 export const useSettingsStore = create<SettingsState>()((set, get) => ({
@@ -173,11 +173,11 @@ function isTerminalType(value: string): value is TerminalType {
 }
 
 /// 读取终端类型：支持集合内则用原值；有值但不支持（如已移除的 windows-terminal）
-/// fallback 到 cmd（Windows 必有，且经系统默认终端可路由到 WT）；无值用应用默认。
+/// fallback 到 powershell（Windows 内置、可被系统默认终端路由到 WT）；无值用应用默认。
 /// 仅做读取时归一，不回写数据库。
 function resolveTerminalType(raw: string | undefined): TerminalType {
   if (raw && isTerminalType(raw)) return raw
-  if (raw && raw.trim()) return 'cmd'
+  if (raw && raw.trim()) return 'powershell'
   return DEFAULT_SETTINGS.terminalType
 }
 
