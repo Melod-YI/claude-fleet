@@ -965,10 +965,9 @@ pub fn maximize_terminal_window(_pid: u32) -> Result<(), String> {
 ///
 /// 流程：
 /// 1. AttachConsole(ATTACH_PARENT_PROCESS) 挂到父进程（终端进程）的 console。
-/// 2. GetConsoleWindow 取 pseudo/conhost 窗口 → 解析【可见+有标题】目标（WT 走 GetAncestor
-///    GA_ROOTOWNER，conhost 直接用，兜底 find_window_by_pid(owner_pid)）→ ShowWindow(SW_MAXIMIZE)。
-/// 3. 阶段2 拿不到可见目标（wezterm ConPTY 等）→ 沿父链找可见+有标题祖先窗口，
-///    跳过 image 名含 claude-fleet 的祖先（防误最大化 app 自身）→ ShowWindow。（Task 2 实现）
+/// 2. GetConsoleWindow 取 console 窗口 → 解析【可见+有标题】目标 → ShowWindow(SW_MAXIMIZE)。
+/// 3. 阶段2 拿不到可见目标 → 沿父链找可见+有标题祖先窗口（跳过 app 自身）→ ShowWindow。
+///    （Task 2 实现）
 /// 4. 始终返回 Ok（best-effort，绝不阻塞 claude）。
 #[cfg(target_os = "windows")]
 pub fn maximize_current_process_window() -> Result<(), String> {
@@ -995,11 +994,16 @@ pub fn maximize_current_process_window() -> Result<(), String> {
     Ok(())
 }
 
-/// AttachConsole(ATTACH_PARENT_PROCESS) + GetConsoleWindow 解析【可见+有标题】的终端窗口。
+/// AttachConsole(ATTACH_PARENT_PROCESS) + GetConsoleWindow 解析【可见且有非空标题】的终端窗口。
 ///
-/// - WT pseudo（不可见）：GetAncestor(GA_ROOTOWNER) 取宿主 WT 主窗口（visible_titled_root_owner）。
-/// - conhost / cmd 自持：hwnd 须可见+有标题才采用（防 pseudo 陷阱）。
-/// - 兜底：find_window_by_pid(owner_pid) 枚举 owner 进程的可见+有标题窗口。
+/// 解析顺序（任一命中即返回）：
+/// 1. `visible_titled_root_owner(hwnd)`：GetAncestor(GA_ROOTOWNER) 沿**窗口 owner 链**取
+///    可见+有标题的宿主主窗口。WT 宿主下 GetConsoleWindow 返回的是 ConPTY 伪宿主窗口，
+///    其 owner 进程报为 cmd/powershell.exe（非 WindowsTerminal），但沿窗口 owner 链
+///    GetAncestor 可达真实 WT 主窗口（owner=WindowsTerminal.exe，可见有标题）。
+/// 2. console hwnd 本身可见：经典 conhost 下 GetAncestor 返回自身（root==hwnd），
+///    此时 conhost 窗口即真实可见终端窗口，直接采用。
+/// 3. find_window_by_pid(owner_pid)：枚举 owner 进程的可见+有标题窗口兜底。
 ///
 /// 失败/无可见目标返回 None（调用方走阶段3 父链兜底）。
 #[cfg(target_os = "windows")]
@@ -1019,16 +1023,14 @@ fn resolve_console_target() -> Option<HWND> {
             debug!("[resolve_console_target] GetConsoleWindow 返回空");
             return None;
         }
-        // WT：GetAncestor 取可见+有标题的宿主主窗口
-        if is_windows_terminal_window(hwnd) {
-            if let Some(root) = visible_titled_root_owner(hwnd) {
-                debug!("[resolve_console_target] WT GetAncestor 命中可见有标题 root");
-                return Some(root);
-            }
+        // WT 宿主：沿窗口 owner 链取真实 WT 主窗口
+        if let Some(root) = visible_titled_root_owner(hwnd) {
+            debug!("[resolve_console_target] GetAncestor 命中可见有标题 root");
+            return Some(root);
         }
-        // conhost 自持：须可见+有标题（防 pseudo 陷阱）
-        if is_visible_titled(hwnd) {
-            debug!("[resolve_console_target] conhost 窗口可见有标题，直接采用");
+        // 经典 conhost：窗口可见即真实终端窗口，直接采用
+        if IsWindowVisible(hwnd).as_bool() {
+            debug!("[resolve_console_target] console 窗口可见，直接采用");
             return Some(hwnd);
         }
         // 兜底：枚举 owner 进程的可见+有标题窗口
@@ -1044,18 +1046,6 @@ fn resolve_console_target() -> Option<HWND> {
             }
         }
         None
-    }
-}
-
-/// HWND 是否可见且有非空标题（pseudo 窗口无标题或不可见会被过滤）。
-#[cfg(target_os = "windows")]
-fn is_visible_titled(hwnd: HWND) -> bool {
-    unsafe {
-        if !IsWindowVisible(hwnd).as_bool() {
-            return false;
-        }
-        let mut buf: [u16; 256] = [0; 256];
-        GetWindowTextW(hwnd, &mut buf) > 0
     }
 }
 
