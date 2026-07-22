@@ -820,6 +820,26 @@ pub fn activate_console_window(_window_id: u64) -> Result<(), String> {
     Err("仅支持 Windows 平台".to_string())
 }
 
+/// 轮询重最大化参数。
+///
+/// helper 最大化后，shell/host 可能在后续初始化中 resize 控制台窗口、还原最大化
+/// （表现为"闪到最大化后立刻变回非最大化"）。故首次 SW_MAXIMIZE 后轮询一段时间，
+/// 发现窗口被还原（IsZoomed=false）则重新最大化，直到连续稳定或超时。
+const MAXIMIZE_POLL_INTERVAL_MS: u64 = 100;
+const MAXIMIZE_MAX_POLL_MS: u64 = 1000;
+/// 连续 N 次（~300ms）检测到仍为最大化且未被还原，视为已稳定，提前退出。
+const MAXIMIZE_STABLE_NEEDED: u32 = 3;
+
+/// 轮询是否应停止的纯决策（便于单测）。
+///
+/// - `elapsed_ms >= MAXIMIZE_MAX_POLL_MS`：超时，停止（停止前调用方已对 !zoomed 重最大化）。
+/// - `zoomed && stable >= MAXIMIZE_STABLE_NEEDED`：连续稳定足够久，停止。
+/// - 其余（含被还原 !zoomed 但未超时）：继续轮询，由调用方重新最大化。
+fn should_stop_polling(zoomed: bool, stable: u32, elapsed_ms: u64) -> bool {
+    elapsed_ms >= MAXIMIZE_MAX_POLL_MS
+        || (zoomed && stable >= MAXIMIZE_STABLE_NEEDED)
+}
+
 /// CLI 子命令 `maximize-window` 的实现：在**当前 helper 进程**内最大化所在终端窗口。
 ///
 /// 供 launch 构造的终端命令前置调用（如 `cmd /K "claude-fleet.exe maximize-window && claude ..."`）：
@@ -830,7 +850,9 @@ pub fn activate_console_window(_window_id: u64) -> Result<(), String> {
 /// 1. AttachConsole(ATTACH_PARENT_PROCESS) 挂到父进程（终端进程）的 console。
 /// 2. GetConsoleWindow 取 console 窗口 → 解析【可见+有标题】目标（见 resolve_console_target）
 ///    → ShowWindow(SW_MAXIMIZE)。
-/// 3. 始终返回 Ok（best-effort，未命中也不阻塞 claude）。
+/// 3. 轮询重最大化：shell/host 后续 resize 可能还原最大化，故在 ~1s 内每 100ms 复查
+///    IsZoomed，被还原则重新 SW_MAXIMIZE；连续稳定 3 次（~300ms）或超时退出。
+/// 4. 始终返回 Ok（best-effort，未命中也不阻塞 claude）。
 ///
 /// 不做父链兜底：cmd/ps/ps7 的 console 路径已全覆盖（WT 宿主走 GetAncestor 取宿主主窗、
 /// 经典 conhost 直接用可见 hwnd）；父链兜底对手动开的终端有误最大化 explorer 等风险，且
@@ -843,11 +865,51 @@ pub fn maximize_current_process_window() -> Result<(), String> {
     // attach 父 console → console 路径
     if let Some(target) = resolve_console_target() {
         unsafe {
+            // 首次最大化
             let ok = ShowWindow(target, SW_MAXIMIZE).as_bool();
             info!(
-                "[maximize_current_process_window] 命中 target={} ShowWindow(SW_MAXIMIZE)={}",
+                "[maximize_current_process_window] 命中 target={} 首次 ShowWindow(SW_MAXIMIZE)={}",
                 target.0 as usize, ok
             );
+
+            // 轮询重最大化：shell/host 后续 resize 还原后重新最大化
+            let mut stable: u32 = 0;
+            let mut elapsed: u64 = 0;
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(
+                    MAXIMIZE_POLL_INTERVAL_MS,
+                ));
+                elapsed += MAXIMIZE_POLL_INTERVAL_MS;
+
+                // 目标窗口销毁则无法继续
+                if !IsWindow(target).as_bool() {
+                    info!(
+                        "[maximize_current_process_window] target 窗口已销毁，停止 stable={} elapsed={}ms",
+                        stable, elapsed
+                    );
+                    break;
+                }
+                let zoomed = IsZoomed(target).as_bool();
+                if !zoomed {
+                    // 被还原，重新最大化并重置稳定计数
+                    let _ = ShowWindow(target, SW_MAXIMIZE);
+                    debug!(
+                        "[maximize_current_process_window] 检测到还原，重新最大化 stable=0 elapsed={}ms",
+                        elapsed
+                    );
+                    stable = 0;
+                } else {
+                    stable += 1;
+                }
+
+                if should_stop_polling(zoomed, stable, elapsed) {
+                    info!(
+                        "[maximize_current_process_window] 轮询结束 zoomed={} stable={} elapsed={}ms",
+                        zoomed, stable, elapsed
+                    );
+                    break;
+                }
+            }
         }
         return Ok(());
     }
@@ -927,5 +989,22 @@ mod tests {
         assert!(should_use_console_window(false, true));
         // wezterm OpenConsole（不可见且非 WT，不响应前台）→ 丢弃回退父链
         assert!(!should_use_console_window(false, false));
+    }
+
+    #[test]
+    fn should_stop_polling_rule() {
+        // 未超时、被还原（!zoomed）→ 继续（调用方重新最大化）
+        assert!(!should_stop_polling(false, 0, 0));
+        assert!(!should_stop_polling(false, 5, 100));
+        // 未超时、仍最大化但稳定计数不足 → 继续
+        assert!(!should_stop_polling(true, 0, 100));
+        assert!(!should_stop_polling(true, 1, 200));
+        // 未超时、仍最大化且稳定计数达标 → 停止
+        assert!(should_stop_polling(true, MAXIMIZE_STABLE_NEEDED, 300));
+        assert!(should_stop_polling(true, MAXIMIZE_STABLE_NEEDED + 1, 400));
+        // 超时 → 无论 zoomed/stable 如何都停止（停止前调用方已对 !zoomed 重最大化）
+        assert!(should_stop_polling(true, 0, MAXIMIZE_MAX_POLL_MS));
+        assert!(should_stop_polling(false, 0, MAXIMIZE_MAX_POLL_MS));
+        assert!(should_stop_polling(false, 99, MAXIMIZE_MAX_POLL_MS + 1));
     }
 }

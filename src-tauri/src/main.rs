@@ -6,6 +6,10 @@ fn main() {
     // 在本进程内最大化当前/父终端窗口后退出，Tauri 主进程不进入。
     let args: Vec<String> = std::env::args().collect();
     if args.len() >= 2 && args[1] == "maximize-window" {
+        // 初始化 helper 专用日志（写独立 maximize.log），便于取证最大化轮询行为。
+        // 必须在 maximize_current_process_window 之前：之后 helper 会 FreeConsole 使
+        // stdout/stderr 失效，但文件写入不受影响。
+        claude_fleet::init_helper_logging();
         if let Err(e) = claude_fleet::maximize_current_process_window() {
             eprintln!("[maximize-window] 失败: {}", e);
         }

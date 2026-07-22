@@ -125,6 +125,12 @@ pub fn maximize_current_process_window() -> Result<(), String> {
     }
 }
 
+/// helper 子进程（`claude-fleet.exe maximize-window`）专用日志初始化。
+/// 写入独立 `maximize.log`，供取证最大化轮询行为。详见 logger::init_helper_logging。
+pub fn init_helper_logging() {
+    utils::logger::init_helper_logging();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 设置 Ctrl+C 处理，优雅退出
