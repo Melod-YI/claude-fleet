@@ -439,17 +439,39 @@ pub fn find_window_by_pid(target_pid: u32) -> Option<HWND> {
     data.found_window
 }
 
+/// 父链查找是否已到达 Claude Fleet 自身进程（纯决策，便于单测）。
+///
+/// 到达自身进程意味着父链已越过真实终端：cmd/powershell 的 console 窗口由
+/// conhost 持有，`EnumWindows` 按 PID 匹配不到，链会继续向上直到 app 主窗口
+/// （标题如 "Claude Fleet"），将其误当作终端标题。故到达自身 PID 时停止查找，
+/// 由调用方回退到文件夹名。
+fn chain_reached_self_pid(current_pid: u32, app_pid: u32) -> bool {
+    current_pid == app_pid
+}
+
 /// 通过进程 ID 获取窗口标题（向上查找父进程链）
 #[cfg(target_os = "windows")]
 pub fn get_window_title_by_pid_chain(start_pid: u32) -> Option<String> {
     info!("[get_window_title_by_pid_chain] 开始查找，起始 PID: {}", start_pid);
 
+    let app_pid = unsafe { GetCurrentProcessId() };
     let mut current_pid = start_pid;
     let mut depth = 0;
     const MAX_DEPTH: u32 = 10;
 
     while depth < MAX_DEPTH {
         debug!("[get_window_title_by_pid_chain] 第 {} 层，检查 PID {}", depth + 1, current_pid);
+
+        // 到达自身进程：父链已越过真实终端（console 窗口由 conhost 持有，按 PID
+        // 枚举不到），继续向上只会拿到 app 主窗口标题（如 "Claude Fleet"），
+        // 绝非终端标题。停止查找，返回 None 由调用方回退到文件夹名。
+        if chain_reached_self_pid(current_pid, app_pid) {
+            info!(
+                "[get_window_title_by_pid_chain] 到达自身进程 PID {}，停止查找（避免误用 app 主窗口标题）",
+                current_pid
+            );
+            break;
+        }
 
         // 尝试获取当前 PID 的窗口标题
         if let Some(title) = get_window_title_by_pid(current_pid) {
@@ -1025,6 +1047,16 @@ mod tests {
         assert!(should_use_console_window(false, true));
         // wezterm OpenConsole（不可见且非 WT，不响应前台）→ 丢弃回退父链
         assert!(!should_use_console_window(false, false));
+    }
+
+    #[test]
+    fn chain_reached_self_pid_rule() {
+        // 到达 Claude Fleet 自身进程 → 停止（避免误用 app 主窗口标题 "Claude Fleet"）
+        assert!(chain_reached_self_pid(4836, 4836));
+        assert!(chain_reached_self_pid(1, 1));
+        // 未到达自身 → 继续父链查找
+        assert!(!chain_reached_self_pid(31304, 4836));
+        assert!(!chain_reached_self_pid(0, 4836));
     }
 
     #[test]
