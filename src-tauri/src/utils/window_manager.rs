@@ -638,6 +638,35 @@ fn get_last_path_segment(path: &str) -> String {
 /// Windows 限制非前台进程直接调用 SetForegroundWindow，需要模拟 Alt 键绕过
 #[cfg(target_os = "windows")]
 pub fn activate_window(hwnd: HWND) -> Result<(), String> {
+    // WT 宿主下传入的 hwnd 可能是 ConPTY 伪宿主窗口（owner 进程报为 cmd/powershell.exe，
+    // 非不可见 WT pseudo，故 is_console 判定 false 走本函数）。直接激活它无法到达 WT 主窗口
+    // ——最小化时尤为明显：WT 主窗口 IsIconic=true 但本 hwnd 非最小化，激活打到伪宿主窗口，
+    // 用户看不到内容。沿窗口 owner 链 GetAncestor(GA_ROOTOWNER) 取真实顶层宿主窗口
+    // （WT 主窗口）；经典 conhost 下 root==hwnd 返回 None，沿用原 hwnd，行为不变。
+    // 与 maximize_current_process_window 的 resolve_console_target 同源。
+    let resolved = visible_titled_root_owner(hwnd);
+    match resolved {
+        Some(root) if root.0 != hwnd.0 => {
+            info!(
+                "[activate_window] 解析到顶层宿主窗口: hwnd={} → root={}",
+                hwnd.0 as usize,
+                root.0 as usize
+            );
+        }
+        _ => {
+            // 未解析到不同 root：经典 conhost 下 hwnd 即真实终端窗口；或 cached hwnd 异常。
+            // 打 owner/title 便于排查 WT 场景未命中 root 的情况。
+            let owner = get_console_owner_name(hwnd).unwrap_or_default();
+            let mut title_buf = [0u16; 256];
+            let title_len = unsafe { GetWindowTextW(hwnd, &mut title_buf) };
+            let title = String::from_utf16_lossy(&title_buf[..title_len as usize]);
+            info!(
+                "[activate_window] 未解析到不同 root，沿用原 hwnd: owner={} title=\"{}\"",
+                owner, title
+            );
+        }
+    }
+    let hwnd = resolved.unwrap_or(hwnd);
     info!("[activate_window] 开始激活窗口: HWND={}", hwnd.0 as usize);
 
     unsafe {
@@ -646,8 +675,15 @@ pub fn activate_window(hwnd: HWND) -> Result<(), String> {
         let is_maximized = IsZoomed(hwnd).as_bool();
         info!("[activate_window] 窗口状态: 最小化={}, 最大化={}", is_minimized, is_maximized);
 
-        // 先显示窗口
-        let _ = ShowWindow(hwnd, SW_SHOW);
+        // 最小化先恢复：SetForegroundWindow 不会恢复最小化窗口，须在其之前 SW_RESTORE，
+        // 否则即使后续恢复，窗口也不在前台（用户看不到内容）。
+        // 非最小化用 SW_SHOW 显示；SW_SHOW 不破坏最大化状态。
+        if is_minimized {
+            info!("[activate_window] 窗口最小化，先恢复显示");
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+        } else {
+            let _ = ShowWindow(hwnd, SW_SHOW);
+        }
 
         // 模拟 Alt 键按下释放，绕过 Windows 的 SetForegroundWindow 限制
         // 这是 Windows 安全机制要求的：只有前台进程或有输入事件的进程才能抢夺焦点
@@ -666,13 +702,8 @@ pub fn activate_window(hwnd: HWND) -> Result<(), String> {
         // 将窗口置顶
         let _ = BringWindowToTop(hwnd);
 
-        // 仅在窗口最小化时恢复，避免破坏最大化状态
-        if is_minimized {
-            info!("[activate_window] 窗口最小化，恢复显示");
-            let _ = ShowWindow(hwnd, SW_RESTORE);
-        } else if is_maximized {
+        if is_maximized {
             info!("[activate_window] 窗口最大化，保持状态");
-            // 最大化窗口不需要 SW_RESTORE，保持最大化
         }
     }
 
@@ -697,9 +728,14 @@ pub fn activate_console_window(hwnd: HWND) -> Result<(), String> {
         if !root.0.is_null() {
             let is_minimized = IsIconic(root).as_bool();
             let is_visible = IsWindowVisible(root).as_bool();
+            let root_is_self = root.0 == hwnd.0;
+            let root_owner = get_console_owner_name(root).unwrap_or_default();
+            let mut title_buf = [0u16; 512];
+            let title_len = GetWindowTextW(root, &mut title_buf);
+            let root_title = String::from_utf16_lossy(&title_buf[..title_len as usize]);
             info!(
-                "[activate_console_window] root HWND={} minimized={} visible={}",
-                root.0 as usize, is_minimized, is_visible
+                "[activate_console_window] root HWND={} is_self={} minimized={} visible={} owner={} title=\"{}\"",
+                root.0 as usize, root_is_self, is_minimized, is_visible, root_owner, root_title
             );
             if is_minimized {
                 let _ = ShowWindow(root, SW_RESTORE);
