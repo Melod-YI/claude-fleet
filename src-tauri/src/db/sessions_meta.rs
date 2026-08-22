@@ -3,7 +3,7 @@
 
 use rusqlite::Result;
 use tracing::{info, error};
-use crate::db::schema::get_connection;
+use crate::db::schema::{get_connection, log_db_err};
 
 /// 设置 session 自定义名称
 pub fn set_session_name(session_id: &str, name: &str) -> Result<()> {
@@ -82,15 +82,15 @@ pub fn get_session_names(session_ids: &[String]) -> Result<Vec<(String, Option<S
 
 #[tauri::command]
 pub fn set_session_name_cmd(session_id: String, name: String) -> Result<(), String> {
-    set_session_name(&session_id, &name).map_err(|e| format!("设置名称失败: {}", e))
+    set_session_name(&session_id, &name).map_err(|e| log_db_err("设置名称失败", e))
 }
 
 #[tauri::command]
 pub fn get_session_name_cmd(session_id: String) -> Result<Option<String>, String> {
-    get_session_name(&session_id).map_err(|e| format!("获取名称失败: {}", e))
+    get_session_name(&session_id).map_err(|e| log_db_err("获取名称失败", e))
 }
 
 #[tauri::command]
 pub fn delete_session_name_cmd(session_id: String) -> Result<(), String> {
-    delete_session_name(&session_id).map_err(|e| format!("删除名称失败: {}", e))
+    delete_session_name(&session_id).map_err(|e| log_db_err("删除名称失败", e))
 }

@@ -4,7 +4,7 @@
 use rusqlite::{params, Connection, Result};
 use serde::{Deserialize, Serialize};
 use tracing::info;
-use crate::db::schema::get_connection;
+use crate::db::schema::{get_connection, log_db_err};
 
 /// 跟踪的仓库记录
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,20 +76,20 @@ pub fn list_tracked_repos(conn: &Connection) -> Result<Vec<TrackedRepo>> {
 
 #[tauri::command]
 pub fn add_tracked_repo_cmd(path: String, name: String) -> Result<TrackedRepo, String> {
-    let conn = get_connection().map_err(|e| format!("数据库连接失败: {}", e))?;
-    add_tracked_repo(&conn, &path, &name).map_err(|e| format!("添加仓库失败: {}", e))
+    let conn = get_connection().map_err(|e| log_db_err("数据库连接失败", e))?;
+    add_tracked_repo(&conn, &path, &name).map_err(|e| log_db_err("添加仓库失败", e))
 }
 
 #[tauri::command]
 pub fn remove_tracked_repo_cmd(id: i64) -> Result<(), String> {
-    let conn = get_connection().map_err(|e| format!("数据库连接失败: {}", e))?;
-    remove_tracked_repo(&conn, id).map_err(|e| format!("删除仓库失败: {}", e))
+    let conn = get_connection().map_err(|e| log_db_err("数据库连接失败", e))?;
+    remove_tracked_repo(&conn, id).map_err(|e| log_db_err("删除仓库失败", e))
 }
 
 #[tauri::command]
 pub fn list_tracked_repos_cmd() -> Result<Vec<TrackedRepo>, String> {
-    let conn = get_connection().map_err(|e| format!("数据库连接失败: {}", e))?;
-    list_tracked_repos(&conn).map_err(|e| format!("查询仓库失败: {}", e))
+    let conn = get_connection().map_err(|e| log_db_err("数据库连接失败", e))?;
+    list_tracked_repos(&conn).map_err(|e| log_db_err("查询仓库失败", e))
 }
 
 #[cfg(test)]

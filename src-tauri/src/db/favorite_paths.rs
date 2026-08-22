@@ -3,7 +3,7 @@
 
 use rusqlite::Result;
 use tracing::info;
-use crate::db::schema::get_connection;
+use crate::db::schema::{get_connection, log_db_err};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -205,20 +205,20 @@ fn get_favorite_path_by_path(path: &str) -> Result<FavoritePath> {
 
 #[tauri::command]
 pub fn record_path_usage_cmd(path: String) -> Result<(), String> {
-    record_path_usage(&path).map_err(|e| format!("记录路径失败: {}", e))
+    record_path_usage(&path).map_err(|e| log_db_err("记录路径失败", e))
 }
 
 #[tauri::command]
 pub fn remove_favorite_path_cmd(path: String) -> Result<(), String> {
-    remove_favorite_path(&path).map_err(|e| format!("移除路径失败: {}", e))
+    remove_favorite_path(&path).map_err(|e| log_db_err("移除路径失败", e))
 }
 
 #[tauri::command]
 pub fn get_sorted_favorite_paths_cmd() -> Result<Vec<FavoritePath>, String> {
-    get_sorted_favorite_paths().map_err(|e| format!("获取路径失败: {}", e))
+    get_sorted_favorite_paths().map_err(|e| log_db_err("获取路径失败", e))
 }
 
 #[tauri::command]
 pub fn toggle_pin_path_cmd(path: String) -> Result<FavoritePath, String> {
-    toggle_pin_path(&path).map_err(|e| format!("切换置顶状态失败: {}", e))
+    toggle_pin_path(&path).map_err(|e| log_db_err("切换置顶状态失败", e))
 }

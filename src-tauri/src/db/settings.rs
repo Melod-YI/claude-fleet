@@ -3,7 +3,7 @@
 
 use rusqlite::{Connection, Result};
 use tracing::{info, error};
-use crate::db::schema::get_connection;
+use crate::db::schema::{get_connection, log_db_err};
 use std::collections::HashMap;
 
 /// 获取单个设置值
@@ -57,26 +57,26 @@ pub fn get_all_settings(conn: &Connection) -> Result<HashMap<String, String>> {
 
 #[tauri::command]
 pub fn get_setting_cmd(key: String) -> Result<Option<String>, String> {
-    let conn = get_connection().map_err(|e| format!("数据库连接失败: {}", e))?;
-    get_setting(&conn, &key).map_err(|e| format!("获取设置失败: {}", e))
+    let conn = get_connection().map_err(|e| log_db_err("数据库连接失败", e))?;
+    get_setting(&conn, &key).map_err(|e| log_db_err("获取设置失败", e))
 }
 
 #[tauri::command]
 pub fn set_setting_cmd(key: String, value: String) -> Result<(), String> {
-    let conn = get_connection().map_err(|e| format!("数据库连接失败: {}", e))?;
-    set_setting(&conn, &key, &value).map_err(|e| format!("设置失败: {}", e))
+    let conn = get_connection().map_err(|e| log_db_err("数据库连接失败", e))?;
+    set_setting(&conn, &key, &value).map_err(|e| log_db_err("设置失败", e))
 }
 
 #[tauri::command]
 pub fn delete_setting_cmd(key: String) -> Result<(), String> {
-    let conn = get_connection().map_err(|e| format!("数据库连接失败: {}", e))?;
-    delete_setting(&conn, &key).map_err(|e| format!("删除设置失败: {}", e))
+    let conn = get_connection().map_err(|e| log_db_err("数据库连接失败", e))?;
+    delete_setting(&conn, &key).map_err(|e| log_db_err("删除设置失败", e))
 }
 
 #[tauri::command]
 pub fn get_all_settings_cmd() -> Result<HashMap<String, String>, String> {
-    let conn = get_connection().map_err(|e| format!("数据库连接失败: {}", e))?;
-    get_all_settings(&conn).map_err(|e| format!("获取设置失败: {}", e))
+    let conn = get_connection().map_err(|e| log_db_err("数据库连接失败", e))?;
+    get_all_settings(&conn).map_err(|e| log_db_err("获取设置失败", e))
 }
 
 #[cfg(test)]

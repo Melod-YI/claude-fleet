@@ -6,7 +6,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-use crate::db::schema::get_connection;
+use crate::db::schema::{get_connection, log_db_err};
 use crate::db::worktrees::{
     WorktreeInfo, insert_worktree, list_worktrees_by_repo, get_worktree_by_path,
     delete_worktree_by_path,
@@ -160,8 +160,8 @@ pub fn create_worktree_cmd(
     let mut info = create_worktree(&opts)?;
 
     // 2. 持久化到数据库
-    let conn = get_connection().map_err(|e| format!("数据库连接失败: {}", e))?;
-    insert_worktree(&conn, &info).map_err(|e| format!("数据库插入失败: {}", e))?;
+    let conn = get_connection().map_err(|e| log_db_err("create_worktree: 数据库连接失败", e))?;
+    insert_worktree(&conn, &info).map_err(|e| log_db_err("create_worktree: 数据库插入失败", e))?;
 
     // 3. 获取数据库分配的 id
     if let Ok(Some(db_info)) = get_worktree_by_path(&conn, &info.path) {
@@ -186,9 +186,9 @@ pub fn list_worktrees_cmd(
     let git_items = list_worktrees_live(path)?;
 
     // 2. 获取数据库记录
-    let conn = get_connection().map_err(|e| format!("数据库连接失败: {}", e))?;
+    let conn = get_connection().map_err(|e| log_db_err("list_worktrees: 数据库连接失败", e))?;
     let db_items = list_worktrees_by_repo(&conn, &repo_path)
-        .map_err(|e| format!("数据库查询失败: {}", e))?;
+        .map_err(|e| log_db_err("list_worktrees: 数据库查询失败", e))?;
 
     // 3. 融合
     let mut db_map: HashMap<String, &WorktreeInfo> = HashMap::new();
@@ -375,9 +375,9 @@ pub fn delete_worktree_cmd(
     // `git -C <wt> worktree remove <wt>` 的 cwd 落在被删目录内会触发
     // Permission denied，且目录删除后 `branch_exists`/`branch -D` 因
     // cwd 失效而失败，导致分支未被删除。
-    let conn = get_connection().map_err(|e| format!("数据库连接失败: {}", e))?;
+    let conn = get_connection().map_err(|e| log_db_err("delete_worktree: 数据库连接失败", e))?;
     let main_repo = match get_worktree_by_path(&conn, &path)
-        .map_err(|e| format!("数据库查询失败: {}", e))?
+        .map_err(|e| log_db_err("delete_worktree: 数据库查询失败", e))?
     {
         Some(db_info) => {
             info!("[delete_worktree_cmd] 使用 DB repo_path 作为主仓库: {}", db_info.repo_path);
@@ -402,7 +402,7 @@ pub fn delete_worktree_cmd(
 
     // 2. 删除数据库记录
     delete_worktree_by_path(&conn, &path)
-        .map_err(|e| format!("数据库删除失败: {}", e))?;
+        .map_err(|e| log_db_err("delete_worktree: 数据库删除失败", e))?;
 
     info!("[delete_worktree_cmd] 完成: {}", path);
     Ok(())
@@ -422,9 +422,9 @@ pub fn preflight_delete_worktree_cmd(
     let wt_path = Path::new(&path);
 
     // 1. 是否托管（DB 有记录）；同时取 base_ref 作为合并对比基准
-    let conn = get_connection().map_err(|e| format!("数据库连接失败: {}", e))?;
+    let conn = get_connection().map_err(|e| log_db_err("preflight_delete_worktree: 数据库连接失败", e))?;
     let wt_info = get_worktree_by_path(&conn, &path)
-        .map_err(|e| format!("数据库查询失败: {}", e))?;
+        .map_err(|e| log_db_err("preflight_delete_worktree: 数据库查询失败", e))?;
     let is_managed = wt_info.is_some();
     info!("[preflight_delete_worktree_cmd] is_managed={}", is_managed);
 
@@ -511,9 +511,9 @@ pub fn count_worktrees_cmd(repo_path: String) -> Result<u32, String> {
         live_entries.iter().map(|e| e.path.clone()).collect();
 
     // 2. missing 计数（DB 有但 live 没有）
-    let conn = get_connection().map_err(|e| format!("数据库连接失败: {}", e))?;
+    let conn = get_connection().map_err(|e| log_db_err("count_worktrees: 数据库连接失败", e))?;
     let db_items = list_worktrees_by_repo(&conn, &repo_path)
-        .map_err(|e| format!("数据库查询失败: {}", e))?;
+        .map_err(|e| log_db_err("count_worktrees: 数据库查询失败", e))?;
     let missing = db_items.iter().filter(|d| !live_paths.contains(&d.path)).count() as u32;
 
     let total = live + missing;
