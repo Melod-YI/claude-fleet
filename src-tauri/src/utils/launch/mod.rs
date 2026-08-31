@@ -216,9 +216,68 @@ pub fn launch_session(request: &LaunchRequest) -> Result<(), String> {
     let plan = build_spawn_plan(request)?;
     // 最大化由终端命令前置的 helper 子命令完成（build_spawn_plan 在 maximize_window=true
     // 时已构造 "<helper> maximize-window && claude..."），此处不再事后补最大化。
-    // 丢 child 不影响终端进程存活（drop 仅关闭句柄，不杀进程）。
-    let _child = spawn_plan(&plan)?;
+    let child = spawn_plan(&plan)?;
+    // 打印实际 spawn 的命令串，便于闪退复现/取证（issue #5）。
+    tracing::info!("[launch_session] spawn 命令串: {}", format_spawn_command(&plan));
+
+    // 早退可观测：终端子进程（powershell/cmd 等）正常应在 claude 运行期间长期存活；
+    // 若它在 ~3s 内退出，几乎必然是 claude 因继承坏 stdin 而早退（issue #5"灰区"闪退）。
+    // 此前 `let _child = ...` 立即 drop，早退既无日志也无错误返回，用户只见窗口一闪。
+    // 这里不阻塞前台（非阻塞 monitor 线程）：捕获退出码后 error! 记录，便于诊断。
+    // 线程在 3s 后或子进程退出时自行结束并 drop child（drop 仅关句柄、不杀进程）。
+    monitor_early_exit(child, &plan);
     Ok(())
+}
+
+/// 把 SpawnPlan 格式化为可读命令串（仅日志取证用，非实际传给 CreateProcess 的串）。
+fn format_spawn_command(plan: &SpawnPlan) -> String {
+    let mut parts: Vec<String> = vec![plan.command.clone()];
+    parts.extend(plan.args.iter().cloned());
+    // raw_args 原样追加（cmd /K 的牺牲引号串等）
+    parts.extend(plan.raw_args.iter().cloned());
+    parts.join(" ")
+}
+
+/// 后台监控 spawn 出的子进程是否在短时间内早退，是则记录退出码与命令串。
+///
+/// 非阻塞：起独立线程轮询 `try_wait`，最长 `EARLY_EXIT_WINDOW_MS`。正常情况下子进程
+/// （终端 + claude）存活远超该窗口，线程到点退出并 drop child（不杀进程）；早退则提前
+/// `error!` 记录退出码 + 命令串后退出。窗口取 ~3s：终端命令前置的 maximize helper
+/// 约占 ~1s，claude 在其后启动、灰区下约 ~1s 退出，总 ~2.6s < 3s 可被捕获。
+fn monitor_early_exit(mut child: std::process::Child, plan: &SpawnPlan) {
+    const EARLY_EXIT_WINDOW_MS: u64 = 3000;
+    const POLL_INTERVAL_MS: u64 = 250;
+
+    let cmdline = format_spawn_command(plan);
+    std::thread::Builder::new()
+        .name("launch-early-exit-monitor".to_string())
+        .spawn(move || {
+            let mut elapsed: u64 = 0;
+            while elapsed < EARLY_EXIT_WINDOW_MS {
+                std::thread::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MS));
+                elapsed += POLL_INTERVAL_MS;
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        tracing::error!(
+                            "[launch_session] 终端子进程早退（疑似 claude 继承坏 stdin，见 issue #5）: \
+                             退出码={} elapsed={}ms 命令串=\"{}\"",
+                            status, elapsed, cmdline
+                        );
+                        return;
+                    }
+                    Ok(None) => {} // 仍在运行，继续轮询
+                    Err(e) => {
+                        tracing::warn!(
+                            "[launch_session] try_wait 失败（停止早退监控）: {} 命令串=\"{}\"",
+                            e, cmdline
+                        );
+                        return;
+                    }
+                }
+            }
+            // 到点仍存活：正常。drop child（不杀进程），终端继续运行。
+        })
+        .ok();
 }
 
 pub fn spawn_plan(plan: &SpawnPlan) -> Result<std::process::Child, String> {
@@ -520,6 +579,22 @@ mod tests {
                 wrapper: None,
                 maximize_window: false,
             }
+        );
+    }
+
+    #[test]
+    fn format_spawn_command_joins_command_args_and_raw_args() {
+        // 取证日志命令串应按 command → args → raw_args 顺序拼接，便于闪退复现（issue #5）。
+        let plan = SpawnPlan {
+            command: "powershell.exe".to_string(),
+            args: vec!["-Command".to_string(), "claude --resume s1".to_string()],
+            raw_args: vec!["\"raw with quotes\"".to_string()],
+            current_dir: Some("C:\\proj".to_string()),
+            creation_flags: Some(0x10),
+        };
+        assert_eq!(
+            format_spawn_command(&plan),
+            "powershell.exe -Command claude --resume s1 \"raw with quotes\""
         );
     }
 

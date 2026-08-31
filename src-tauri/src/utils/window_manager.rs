@@ -189,6 +189,15 @@ fn raw_console_window_for_pid(pid: u32) -> Option<HWND> {
         let hwnd = unsafe { GetConsoleWindow() };
         // 立即释放 attach，避免影响本进程后续 attach 及其它线程
         unsafe { let _ = FreeConsole(); }
+        // 关键：AttachConsole 把本进程 std 句柄设为目标 console 的句柄，FreeConsole 仅分离、
+        // 不重置这些句柄——残留为"非 NULL 但失效"。这是主进程 std 句柄污染的**源头**：
+        // 后续 launch_session spawn 经 STARTF_USESTDHANDLES 把失效句柄传给终端子进程，
+        // 轻则 os error 6/50（被 process::spawn 反应式重置捕获），重则"灰区"——spawn 成功但
+        // 子进程继承坏 stdin，claude 读到 EOF ~1s 退出、窗口关闭 = 新建 session 间歇闪退
+        // （见 issue #5）。maximize 路径已把自身 AttachConsole 挪进 helper 子进程隔离此污染，
+        // 本路径留在主进程，故必须在 FreeConsole 后显式置 NULL 清理（与 process::spawn 的
+        // 反应式重置同源互补：此为预防、彼为兜底）。
+        crate::utils::process::clear_std_handles();
         hwnd
     };
 

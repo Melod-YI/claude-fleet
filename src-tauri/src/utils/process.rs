@@ -109,23 +109,42 @@ fn spawn_inner(
     }
 }
 
+/// 把当前进程的三个标准句柄置为 NULL（不调用 FreeConsole）。
+///
+/// `AttachConsole(pid)` 会把调用进程的 STD_INPUT/OUTPUT/ERROR 设为目标 console 的句柄，
+/// 此后 `FreeConsole()` 仅分离 console，**不重置**这些句柄——它们残留为"非 NULL 但失效"。
+/// 这正是主进程窗口解析路径（`window_manager::raw_console_window_for_pid`）污染 std 句柄、
+/// 进而经 `STARTF_USESTDHANDLES` 传给后续 spawn 子进程（导致 os error 6/50 或"灰区"早退）的根因。
+/// 在 `FreeConsole` 之后调用本函数把句柄恢复为 NULL，使 Rust spawn 不再设
+/// `STARTF_USESTDHANDLES`、`CREATE_NEW_CONSOLE` 子进程获得自己的干净新控制台。
+///
+/// 抽取为独立 `pub(crate)` 原语：`reset_std_handles`（spawn 反应式恢复，含 FreeConsole）与
+/// `window_manager::raw_console_window_for_pid`（attach 后清理，自身已 FreeConsole）共用同一逻辑。
+#[cfg(target_os = "windows")]
+pub(crate) fn clear_std_handles() {
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::Console::SetStdHandle;
+    use windows::Win32::System::Console::{STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE};
+
+    unsafe {
+        let null = HANDLE(std::ptr::null_mut());
+        let _ = SetStdHandle(STD_INPUT_HANDLE, null);
+        let _ = SetStdHandle(STD_OUTPUT_HANDLE, null);
+        let _ = SetStdHandle(STD_ERROR_HANDLE, null);
+    }
+}
+
 /// 清理当前进程的标准句柄：分离控制台 + 将三个标准句柄置 NULL。
 ///
 /// best-effort：任一调用失败均忽略，下一步 spawn 会重新探测句柄状态。
 #[cfg(target_os = "windows")]
 fn reset_std_handles() {
-    use windows::Win32::Foundation::HANDLE;
-    use windows::Win32::System::Console::{
-        FreeConsole, SetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
-    };
+    use windows::Win32::System::Console::FreeConsole;
 
     unsafe {
-        let null = HANDLE(std::ptr::null_mut());
         let _ = FreeConsole();
-        let _ = SetStdHandle(STD_INPUT_HANDLE, null);
-        let _ = SetStdHandle(STD_OUTPUT_HANDLE, null);
-        let _ = SetStdHandle(STD_ERROR_HANDLE, null);
     }
+    clear_std_handles();
 }
 
 #[cfg(test)]
@@ -161,6 +180,44 @@ mod tests {
     #[test]
     fn ignores_non_os_error() {
         assert!(!is_invalid_handle_error(&io::Error::new(io::ErrorKind::Other, "boom")));
+    }
+
+    // --- clear_std_handles：置 NULL 三标准句柄（save/restore 避免污染测试进程）---
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn clear_std_handles_nulls_all_three() {
+        use windows::Win32::Foundation::HANDLE;
+        use windows::Win32::System::Console::{
+            GetStdHandle, SetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+        };
+
+        // 句柄值取为 usize 便于比较；GetStdHandle 返回 Result<HANDLE>，统一 .ok() 取值。
+        let cur = |std: _| unsafe { GetStdHandle(std) }.ok().map(|h| h.0 as usize).unwrap_or(0);
+        // 保存当前句柄，调用后恢复，避免污染测试进程自身的 std 句柄影响后续测试输出。
+        let saved_in = unsafe { GetStdHandle(STD_INPUT_HANDLE) }.ok();
+        let saved_out = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) }.ok();
+        let saved_err = unsafe { GetStdHandle(STD_ERROR_HANDLE) }.ok();
+
+        clear_std_handles();
+
+        // 三个标准句柄均应为 NULL（GetStdHandle 置 NULL 后返回 Ok(null) 或 Err，归一为 0）。
+        assert_eq!(cur(STD_INPUT_HANDLE), 0, "STD_INPUT 应被置 NULL");
+        assert_eq!(cur(STD_OUTPUT_HANDLE), 0, "STD_OUTPUT 应被置 NULL");
+        assert_eq!(cur(STD_ERROR_HANDLE), 0, "STD_ERROR 应被置 NULL");
+
+        // 恢复，确保不影响后续测试
+        unsafe {
+            if let Some(h) = saved_in {
+                let _ = SetStdHandle(STD_INPUT_HANDLE, h);
+            }
+            if let Some(h) = saved_out {
+                let _ = SetStdHandle(STD_OUTPUT_HANDLE, h);
+            }
+            if let Some(h) = saved_err {
+                let _ = SetStdHandle(STD_ERROR_HANDLE, h);
+            }
+        }
     }
 
     // --- spawn_inner 重试编排（注入 fake spawn，不触发真实 OS 副作用）---
